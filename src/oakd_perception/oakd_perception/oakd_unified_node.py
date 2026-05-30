@@ -5,6 +5,12 @@ import numpy as np
 import rclpy
 import sensor_msgs_py.point_cloud2 as pc2
 from rclpy.node import Node
+from rclpy.qos import (
+    QoSDurabilityPolicy,
+    QoSHistoryPolicy,
+    QoSProfile,
+    QoSReliabilityPolicy,
+)
 from sensor_msgs.msg import CameraInfo, Imu, Image, PointCloud2
 from std_msgs.msg import Header
 
@@ -118,25 +124,46 @@ class OakDUnifiedNode(Node):
         self.stereo_baseline_m = float(self.get_parameter("stereo_baseline_m").value)
         self.image_frequency = self.get_parameter("image_frequency").value
 
+        sensor_qos = QoSProfile(
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=QoSReliabilityPolicy.BEST_EFFORT,
+            durability=QoSDurabilityPolicy.VOLATILE,
+        )
+        imu_qos = QoSProfile(
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=20,
+            reliability=QoSReliabilityPolicy.BEST_EFFORT,
+            durability=QoSDurabilityPolicy.VOLATILE,
+        )
+
         # 发布器
-        self.imu_pub = self.create_publisher(Imu, self.imu_topic_name, 10)
-        self.pc_pub = self.create_publisher(PointCloud2, self.pointcloud_topic, 10)
+        self.imu_pub = self.create_publisher(Imu, self.imu_topic_name, imu_qos)
+        self.pc_pub = self.create_publisher(
+            PointCloud2, self.pointcloud_topic, sensor_qos
+        )
         self.filtered_pc_pub = self.create_publisher(
-            PointCloud2, self.filtered_pointcloud_topic, 10
+            PointCloud2, self.filtered_pointcloud_topic, sensor_qos
         )
         if self.enable_image_publish:
-            self.left_pub = self.create_publisher(Image, self.left_image_topic, 10)
-            self.right_pub = self.create_publisher(Image, self.right_image_topic, 10)
+            self.left_pub = self.create_publisher(
+                Image, self.left_image_topic, sensor_qos
+            )
+            self.right_pub = self.create_publisher(
+                Image, self.right_image_topic, sensor_qos
+            )
             self.left_info_pub = self.create_publisher(
-                CameraInfo, self.left_camera_info_topic, 10
+                CameraInfo, self.left_camera_info_topic, sensor_qos
             )
             self.right_info_pub = self.create_publisher(
-                CameraInfo, self.right_camera_info_topic, 10
+                CameraInfo, self.right_camera_info_topic, sensor_qos
             )
         if self.enable_depth_publish:
-            self.depth_pub = self.create_publisher(Image, self.depth_image_topic, 10)
+            self.depth_pub = self.create_publisher(
+                Image, self.depth_image_topic, sensor_qos
+            )
             self.depth_info_pub = self.create_publisher(
-                CameraInfo, self.depth_camera_info_topic, 10
+                CameraInfo, self.depth_camera_info_topic, sensor_qos
             )
 
         # 内部状态
