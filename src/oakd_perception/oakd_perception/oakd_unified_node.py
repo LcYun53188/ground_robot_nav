@@ -5,7 +5,7 @@ import numpy as np
 import rclpy
 import sensor_msgs_py.point_cloud2 as pc2
 from rclpy.node import Node
-from sensor_msgs.msg import Imu, PointCloud2, Image
+from sensor_msgs.msg import CameraInfo, Imu, Image, PointCloud2
 from std_msgs.msg import Header
 
 from oakd_perception.fov_boundary_filter import (
@@ -52,8 +52,16 @@ class OakDUnifiedNode(Node):
 
         # ============ 图像输出配置 ============
         self.declare_parameter("enable_image_publish", True)
+        self.declare_parameter("enable_depth_publish", True)
         self.declare_parameter("left_image_topic", "/oakd/left/image_raw")
         self.declare_parameter("right_image_topic", "/oakd/right/image_raw")
+        self.declare_parameter("left_camera_info_topic", "/oakd/left/camera_info")
+        self.declare_parameter("right_camera_info_topic", "/oakd/right/camera_info")
+        self.declare_parameter("depth_image_topic", "/oakd/depth/image")
+        self.declare_parameter("depth_camera_info_topic", "/oakd/depth/camera_info")
+        self.declare_parameter("left_camera_frame_id", "oakd_left_camera_optical_frame")
+        self.declare_parameter("right_camera_frame_id", "oakd_right_camera_optical_frame")
+        self.declare_parameter("stereo_baseline_m", 0.075)
         self.declare_parameter("image_frequency", 30)
 
         # 获取IMU参数
@@ -92,8 +100,22 @@ class OakDUnifiedNode(Node):
 
         # 获取图像参数
         self.enable_image_publish = self.get_parameter("enable_image_publish").value
+        self.enable_depth_publish = self.get_parameter("enable_depth_publish").value
         self.left_image_topic = self.get_parameter("left_image_topic").value
         self.right_image_topic = self.get_parameter("right_image_topic").value
+        self.left_camera_info_topic = self.get_parameter(
+            "left_camera_info_topic"
+        ).value
+        self.right_camera_info_topic = self.get_parameter(
+            "right_camera_info_topic"
+        ).value
+        self.depth_image_topic = self.get_parameter("depth_image_topic").value
+        self.depth_camera_info_topic = self.get_parameter(
+            "depth_camera_info_topic"
+        ).value
+        self.left_camera_frame_id = self.get_parameter("left_camera_frame_id").value
+        self.right_camera_frame_id = self.get_parameter("right_camera_frame_id").value
+        self.stereo_baseline_m = float(self.get_parameter("stereo_baseline_m").value)
         self.image_frequency = self.get_parameter("image_frequency").value
 
         # 发布器
@@ -105,6 +127,17 @@ class OakDUnifiedNode(Node):
         if self.enable_image_publish:
             self.left_pub = self.create_publisher(Image, self.left_image_topic, 10)
             self.right_pub = self.create_publisher(Image, self.right_image_topic, 10)
+            self.left_info_pub = self.create_publisher(
+                CameraInfo, self.left_camera_info_topic, 10
+            )
+            self.right_info_pub = self.create_publisher(
+                CameraInfo, self.right_camera_info_topic, 10
+            )
+        if self.enable_depth_publish:
+            self.depth_pub = self.create_publisher(Image, self.depth_image_topic, 10)
+            self.depth_info_pub = self.create_publisher(
+                CameraInfo, self.depth_camera_info_topic, 10
+            )
 
         # 内部状态
         self.imu_queue = None
@@ -303,8 +336,8 @@ class OakDUnifiedNode(Node):
         monoRight.out.link(stereo.right)
 
         if self.enable_image_publish:
-            # VINS expects calibrated stereo images. Publish StereoDepth's
-            # rectified outputs instead of the raw wide-FOV mono streams.
+            # Publish StereoDepth's rectified outputs instead of the raw
+            # wide-FOV mono streams.
             self.left_queue = stereo.rectifiedLeft.createOutputQueue()
             self.right_queue = stereo.rectifiedRight.createOutputQueue()
 
@@ -313,28 +346,57 @@ class OakDUnifiedNode(Node):
 
     def setup_calibration(self):
         """Load camera calibration data."""
-        self.fx = 400.0
-        self.fy = 400.0
-        self.cx = 320.0
-        self.cy = 200.0
+        default_intrinsics = {
+            "fx": 400.0,
+            "fy": 400.0,
+            "cx": 320.0,
+            "cy": 200.0,
+        }
+        self.left_intrinsics = default_intrinsics.copy()
+        self.right_intrinsics = default_intrinsics.copy()
+        self.depth_intrinsics = default_intrinsics.copy()
+        self.fx = self.depth_intrinsics["fx"]
+        self.fy = self.depth_intrinsics["fy"]
+        self.cx = self.depth_intrinsics["cx"]
+        self.cy = self.depth_intrinsics["cy"]
 
         try:
             device = self.pipeline.getDevice()
             if device is not None and hasattr(device, "readCalibration"):
                 calibData = device.readCalibration()
-                self.intrinsics = calibData.getCameraIntrinsics(
-                    dai.CameraBoardSocket.RIGHT, 640, 400
+                self.left_intrinsics = self._read_camera_intrinsics(
+                    calibData, dai.CameraBoardSocket.LEFT, default_intrinsics
                 )
-                self.fx = self.intrinsics[0][0]
-                self.fy = self.intrinsics[1][1]
-                self.cx = self.intrinsics[0][2]
-                self.cy = self.intrinsics[1][2]
+                self.right_intrinsics = self._read_camera_intrinsics(
+                    calibData, dai.CameraBoardSocket.RIGHT, default_intrinsics
+                )
+                self.depth_intrinsics = self.right_intrinsics.copy()
+                self.fx = self.depth_intrinsics["fx"]
+                self.fy = self.depth_intrinsics["fy"]
+                self.cx = self.depth_intrinsics["cx"]
+                self.cy = self.depth_intrinsics["cy"]
                 self.get_logger().info(
-                    f"标定信息已加载: fx={self.fx:.1f}, fy={self.fy:.1f}, "
-                    f"cx={self.cx:.1f}, cy={self.cy:.1f}"
+                    "标定信息已加载: "
+                    f"left_fx={self.left_intrinsics['fx']:.1f}, "
+                    f"right_fx={self.right_intrinsics['fx']:.1f}, "
+                    f"depth_fx={self.depth_intrinsics['fx']:.1f}"
                 )
         except Exception as e:
             self.get_logger().warn(f"标定信息加载失败，使用默认值: {e}")
+
+    def _read_camera_intrinsics(self, calib_data, socket, fallback):
+        """Read one camera intrinsic matrix from DepthAI calibration data."""
+        try:
+            intrinsics = calib_data.getCameraIntrinsics(socket, 640, 400)
+            return {
+                "fx": float(intrinsics[0][0]),
+                "fy": float(intrinsics[1][1]),
+                "cx": float(intrinsics[0][2]),
+                "cy": float(intrinsics[1][2]),
+            }
+        except Exception as exc:
+            self.get_logger().warn(f"{socket} 标定信息读取失败，使用默认值: {exc}")
+            return fallback.copy()
 
     def publish_imu(self):
         """Publish IMU data."""
@@ -406,6 +468,16 @@ class OakDUnifiedNode(Node):
                 return
 
             depth_frame = inDepth.getFrame()
+            stamp = self._stamp_from_device_time(self._extract_device_time(inDepth))
+
+            if self.enable_depth_publish:
+                header = Header()
+                header.stamp = stamp
+                header.frame_id = self.pointcloud_frame_id
+                self.depth_pub.publish(self.create_depth_image_msg(depth_frame, header))
+                self.depth_info_pub.publish(
+                    self.create_camera_info_msg(header, depth_frame.shape, self.depth_intrinsics)
+                )
 
             step = max(int(self.sampling_step), 1)
             depth_down = depth_frame[::step, ::step]
@@ -430,7 +502,7 @@ class OakDUnifiedNode(Node):
             points = np.stack((x, y, z), axis=-1).astype(np.float32)
 
             header = Header()
-            header.stamp = self.get_clock().now().to_msg()
+            header.stamp = stamp
             header.frame_id = self.pointcloud_frame_id
 
             raw_pc_msg = pc2.create_cloud_xyz32(header, points)
@@ -460,6 +532,68 @@ class OakDUnifiedNode(Node):
         msg.data = cv_frame.tobytes()
         return msg
 
+    def create_depth_image_msg(self, depth_frame, header):
+        """Create an OpenNI-style uint16 depth image in millimeters."""
+        msg = Image()
+        msg.header = header
+        msg.height = depth_frame.shape[0]
+        msg.width = depth_frame.shape[1]
+        msg.encoding = "16UC1"
+        msg.is_bigendian = 0
+        msg.step = msg.width * 2
+        msg.data = depth_frame.astype(np.uint16, copy=False).tobytes()
+        return msg
+
+    def create_camera_info_msg(self, header, image_shape, intrinsics, tx=0.0):
+        """Publish camera intrinsics for stereo, depth, and RGB-D consumers."""
+        msg = CameraInfo()
+        msg.header = header
+        msg.height = int(image_shape[0])
+        msg.width = int(image_shape[1])
+        msg.distortion_model = "plumb_bob"
+        msg.d = [0.0, 0.0, 0.0, 0.0, 0.0]
+        fx = float(intrinsics["fx"])
+        fy = float(intrinsics["fy"])
+        cx = float(intrinsics["cx"])
+        cy = float(intrinsics["cy"])
+        msg.k = [
+            fx,
+            0.0,
+            cx,
+            0.0,
+            fy,
+            cy,
+            0.0,
+            0.0,
+            1.0,
+        ]
+        msg.r = [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+        ]
+        msg.p = [
+            fx,
+            0.0,
+            cx,
+            float(tx),
+            0.0,
+            fy,
+            cy,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+        ]
+        return msg
+
     def publish_images(self):
         """Publish left and right stereo images."""
         if self.left_queue is None or self.right_queue is None:
@@ -476,13 +610,29 @@ class OakDUnifiedNode(Node):
             stamp = self._stamp_from_device_time(device_seconds)
 
             left_msg = self.create_image_msg(
-                inLeft.getCvFrame(), self.pointcloud_frame_id, stamp
+                inLeft.getCvFrame(), self.left_camera_frame_id, stamp
             )
             right_msg = self.create_image_msg(
-                inRight.getCvFrame(), self.pointcloud_frame_id, stamp
+                inRight.getCvFrame(), self.right_camera_frame_id, stamp
             )
             self.left_pub.publish(left_msg)
             self.right_pub.publish(right_msg)
+            self.left_info_pub.publish(
+                self.create_camera_info_msg(
+                    left_msg.header,
+                    (left_msg.height, left_msg.width),
+                    self.left_intrinsics,
+                )
+            )
+            right_tx = -float(self.right_intrinsics["fx"]) * self.stereo_baseline_m
+            self.right_info_pub.publish(
+                self.create_camera_info_msg(
+                    right_msg.header,
+                    (right_msg.height, right_msg.width),
+                    self.right_intrinsics,
+                    tx=right_tx,
+                )
+            )
         except Exception as e:
             self.get_logger().warn(f"图像发布失败: {e}")
 

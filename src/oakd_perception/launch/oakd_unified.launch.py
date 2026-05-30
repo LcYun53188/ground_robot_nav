@@ -37,6 +37,10 @@ def launch_setup(context, *args, **kwargs):
             "enable_fov_boundary_filter"
         ).perform(context)
         == "true",
+        "enable_depth_publish": LaunchConfiguration("enable_depth_publish").perform(
+            context
+        )
+        == "true",
         "auto_estimate_fov": LaunchConfiguration("auto_estimate_fov").perform(
             context
         )
@@ -51,6 +55,27 @@ def launch_setup(context, *args, **kwargs):
         "filtered_pointcloud_topic": LaunchConfiguration(
             "filtered_pointcloud_topic"
         ).perform(context),
+        "left_image_topic": LaunchConfiguration("left_image_topic").perform(context),
+        "right_image_topic": LaunchConfiguration("right_image_topic").perform(context),
+        "left_camera_info_topic": LaunchConfiguration(
+            "left_camera_info_topic"
+        ).perform(context),
+        "right_camera_info_topic": LaunchConfiguration(
+            "right_camera_info_topic"
+        ).perform(context),
+        "depth_image_topic": LaunchConfiguration("depth_image_topic").perform(context),
+        "depth_camera_info_topic": LaunchConfiguration(
+            "depth_camera_info_topic"
+        ).perform(context),
+        "left_camera_frame_id": LaunchConfiguration("left_camera_frame_id").perform(
+            context
+        ),
+        "right_camera_frame_id": LaunchConfiguration("right_camera_frame_id").perform(
+            context
+        ),
+        "stereo_baseline_m": float(
+            LaunchConfiguration("stereo_baseline_m").perform(context)
+        ),
         "imu_frame_id": LaunchConfiguration("imu_frame_id").perform(context),
         "pointcloud_frame_id": LaunchConfiguration("pointcloud_frame_id").perform(
             context
@@ -74,8 +99,8 @@ def launch_setup(context, *args, **kwargs):
     # 静态变换：oakd_imu_link -> oakd_camera_optical_frame
     #
     # 这组参数描述 OAK-D 设备内部 IMU/机身坐标系到相机光学坐标系的固定关系。
-    # 它不是 OAK-D 相对无人机机体的安装位置；整台 OAK-D 的机体安装外参在
-    # uav_bringup/launch/ekf_launch.py 中通过 base_link -> oakd_imu_link 配置。
+    # 它不是 OAK-D 相对机器人底盘的安装位置；整台 OAK-D 的底盘安装外参在
+    # omni_bringup/launch/ground_nav.launch.py 中通过 base_link -> oakd_imu_link 配置。
     #
     # TF 链路整体应为：
     #   base_link -> oakd_imu_link -> oakd_camera_optical_frame
@@ -104,8 +129,7 @@ def launch_setup(context, *args, **kwargs):
     #   - optical +Z：相机前方
     #
     # 注意：
-    #   - VINS 的 body_T_cam0/body_T_cam1 应与这里的 IMU->Camera 语义保持一致。
-    #   - 如果这里旋转方向写反，点云会出现轴向翻转，VINS 的视觉约束也会异常。
+    #   - 如果这里旋转方向写反，点云会出现轴向翻转。
     #   - 如果只是移动 OAK-D 在飞机上的安装位置，不应改这里，应改
     #     base_link -> oakd_imu_link。
     static_tf_node = Node(
@@ -124,7 +148,39 @@ def launch_setup(context, *args, **kwargs):
         ],
     )
 
-    return [oakd_unified_node, static_tf_node]
+    left_camera_tf_node = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="oakd_center_to_left_camera_tf",
+        arguments=[
+            LaunchConfiguration("left_camera_x"),
+            "0",
+            "0",
+            "0",
+            "0",
+            "0",
+            "oakd_camera_optical_frame",
+            LaunchConfiguration("left_camera_frame_id"),
+        ],
+    )
+
+    right_camera_tf_node = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="oakd_center_to_right_camera_tf",
+        arguments=[
+            LaunchConfiguration("right_camera_x"),
+            "0",
+            "0",
+            "0",
+            "0",
+            "0",
+            "oakd_camera_optical_frame",
+            LaunchConfiguration("right_camera_frame_id"),
+        ],
+    )
+
+    return [oakd_unified_node, static_tf_node, left_camera_tf_node, right_camera_tf_node]
 
 
 def generate_launch_description():
@@ -146,6 +202,7 @@ def generate_launch_description():
             DeclareLaunchArgument(
                 "enable_fov_boundary_filter", default_value="true"
             ),
+            DeclareLaunchArgument("enable_depth_publish", default_value="true"),
             DeclareLaunchArgument("auto_estimate_fov", default_value="true"),
             DeclareLaunchArgument("fov_h_deg", default_value="72.0"),
             DeclareLaunchArgument("fov_v_deg", default_value="53.0"),
@@ -157,10 +214,36 @@ def generate_launch_description():
             DeclareLaunchArgument(
                 "filtered_pointcloud_topic", default_value="/oakd/points_filtered"
             ),
+            DeclareLaunchArgument("left_image_topic", default_value="/oakd/left/image_raw"),
+            DeclareLaunchArgument(
+                "right_image_topic", default_value="/oakd/right/image_raw"
+            ),
+            DeclareLaunchArgument(
+                "left_camera_info_topic", default_value="/oakd/left/camera_info"
+            ),
+            DeclareLaunchArgument(
+                "right_camera_info_topic", default_value="/oakd/right/camera_info"
+            ),
+            DeclareLaunchArgument(
+                "depth_image_topic", default_value="/oakd/depth/image"
+            ),
+            DeclareLaunchArgument(
+                "depth_camera_info_topic",
+                default_value="/oakd/depth/camera_info",
+            ),
             DeclareLaunchArgument("imu_frame_id", default_value="oakd_imu_link"),
             DeclareLaunchArgument(
                 "pointcloud_frame_id", default_value="oakd_camera_optical_frame"
             ),
+            DeclareLaunchArgument(
+                "left_camera_frame_id", default_value="oakd_left_camera_optical_frame"
+            ),
+            DeclareLaunchArgument(
+                "right_camera_frame_id", default_value="oakd_right_camera_optical_frame"
+            ),
+            DeclareLaunchArgument("stereo_baseline_m", default_value="0.075"),
+            DeclareLaunchArgument("left_camera_x", default_value="-0.0375"),
+            DeclareLaunchArgument("right_camera_x", default_value="0.0375"),
             OpaqueFunction(function=launch_setup),
         ]
     )
