@@ -152,6 +152,9 @@ VS Code 新开终端时会自动使用 `.venv` 中的 Python。如不自动激�
 
 ## 6. 构建项目
 
+如需构建 NVIDIA Isaac ROS / nvblox 相关包，先按
+[CUDA Toolkit 13.2 安装指南](./CUDA_TOOLKIT_13_2_INSTALLATION.md) 安装 `nvcc`。
+
 ### 6.1 使用 colcon 构建
 
 在虚拟环境中使用 `colcon` 构建包：

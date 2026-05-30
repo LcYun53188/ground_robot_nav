@@ -1,9 +1,8 @@
 """
 Ground omni-wheel navigation stack launch file.
 
-This launch file intentionally does not include uav_bringup or px4_comm_bridge.
-It reuses the shared perception, mapping, safety, and SE(2) planning packages,
-then optionally starts a ground serial bridge when that package is available.
+This legacy ground launch reuses shared perception, mapping, safety, and SE(2)
+planning packages, then optionally starts a ground serial bridge.
 """
 
 import os

@@ -5,7 +5,7 @@ import time
 from typing import Optional, Tuple
 
 import rclpy
-from geometry_msgs.msg import TwistStamped
+from geometry_msgs.msg import Twist, TwistStamped
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.time import Time
@@ -30,6 +30,7 @@ class GroundSerialBridge(Node):
         super().__init__("ground_serial_bridge")
 
         self.declare_parameter("planner_cmd_topic", "/nav/cmd_vel")
+        self.declare_parameter("planner_cmd_unstamped_topic", "/cmd_vel")
         self.declare_parameter("planner_emergency_topic", "/nav/emergency")
         self.declare_parameter("planner_safety_topic", "/nav/safety_status")
         self.declare_parameter("command_output_frame", "base_link")
@@ -62,6 +63,12 @@ class GroundSerialBridge(Node):
             TwistStamped,
             self.get_parameter("planner_cmd_topic").value,
             self.cmd_cb,
+            10,
+        )
+        self.cmd_unstamped_sub = self.create_subscription(
+            Twist,
+            self.get_parameter("planner_cmd_unstamped_topic").value,
+            self.cmd_unstamped_cb,
             10,
         )
         self.emergency_sub = self.create_subscription(
@@ -120,6 +127,16 @@ class GroundSerialBridge(Node):
         vy = float(msg.twist.linear.y)
         wz = float(msg.twist.angular.z)
         frame_id = msg.header.frame_id or str(self.get_parameter("command_output_frame").value)
+        with self.lock:
+            self.latest_cmd = (vx, vy, wz)
+            self.latest_cmd_frame = frame_id
+            self.last_cmd_time = self.get_clock().now()
+
+    def cmd_unstamped_cb(self, msg: Twist):
+        vx = float(msg.linear.x)
+        vy = float(msg.linear.y)
+        wz = float(msg.angular.z)
+        frame_id = str(self.get_parameter("command_output_frame").value)
         with self.lock:
             self.latest_cmd = (vx, vy, wz)
             self.latest_cmd_frame = frame_id

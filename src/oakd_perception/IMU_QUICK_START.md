@@ -15,7 +15,7 @@
 ### 1. 编译项目
 
 ```bash
-cd /home/nuc/Program/uav_vision_ws
+cd /home/nuc/Program/ground_robot_nav_ws
 ./scripts/with_venv.sh colcon build --packages-select oakd_perception
 ```
 
@@ -161,7 +161,7 @@ DeviceError: X_LINK_ERROR
 
 ## 应用示例
 
-### 1. 无人机姿态估计
+### 1. 机器人姿态估计
 ```python
 #!/usr/bin/env python3
 import rclpy
@@ -169,7 +169,7 @@ from sensor_msgs.msg import Imu
 from geometry_msgs.msg import Twist
 
 def imu_callback(msg):
-    # 从IMU数据计算无人机姿态
+    # 从IMU数据计算机器人姿态
     ax, ay, az = msg.linear_acceleration.x, msg.linear_acceleration.y, msg.linear_acceleration.z
     wx, wy, wz = msg.angular_velocity.x, msg.angular_velocity.y, msg.angular_velocity.z
     
@@ -177,7 +177,7 @@ def imu_callback(msg):
     pass
 
 rclpy.init()
-node = rclpy.create_node('drone_attitude')
+node = rclpy.create_node('robot_attitude')
 node.create_subscription(Imu, '/oakd/imu', imu_callback, 10)
 rclpy.spin(node)
 ```

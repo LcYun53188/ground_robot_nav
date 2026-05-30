@@ -31,7 +31,7 @@ else
   exit 1
 fi
 
-if [ -f install/setup.bash ]; then
+if [ "${SKIP_WS_SETUP:-false}" != "true" ] && [ -f install/setup.bash ]; then
   source install/setup.bash
 fi
 

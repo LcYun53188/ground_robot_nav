@@ -61,13 +61,13 @@ class LocalPlanner(Node):
         max_speed = float(self.get_parameter('max_speed').value)
         goal_reached_threshold = float(self.get_parameter('goal_reached_threshold').value)
 
-        # Resolve UAV coordinate within the map frame
+        # Resolve robot coordinate within the map frame.
         frame_id = msg.header.frame_id
         if not frame_id:
             frame_id = 'map'
 
-        uav_x = 0.0
-        uav_y = 0.0
+        robot_x = 0.0
+        robot_y = 0.0
         yaw = 0.0
 
         if frame_id != 'base_link':
@@ -79,8 +79,8 @@ class LocalPlanner(Node):
                     Time(),
                     timeout=Duration(seconds=0.1)
                 )
-                uav_x = transform.transform.translation.x
-                uav_y = transform.transform.translation.y
+                robot_x = transform.transform.translation.x
+                robot_y = transform.transform.translation.y
 
                 # Extract yaw heading from quaternion rotation
                 q = transform.transform.rotation
@@ -90,12 +90,12 @@ class LocalPlanner(Node):
 
             except TransformException as exc:
                 self.get_logger().warning(
-                    f'TF lookup from {frame_id} to base_link failed: {exc}. Hovering safely.'
+                    f'TF lookup from {frame_id} to base_link failed: {exc}. Stopping safely.'
                 )
                 self.publish_halt(msg.header)
                 return
 
-        # --- Decision Tree Check 2 & 3: Goal Navigation vs. Fallback Reactive Flight ---
+        # --- Decision Tree Check 2 & 3: Goal Navigation vs. Fallback Reactive Mode ---
         f_att_x = 0.0
         f_att_y = 0.0
 
@@ -104,11 +104,11 @@ class LocalPlanner(Node):
             goal_x = self.current_goal.pose.position.x
             goal_y = self.current_goal.pose.position.y
 
-            dist_to_goal = math.hypot(goal_x - uav_x, goal_y - uav_y)
+            dist_to_goal = math.hypot(goal_x - robot_x, goal_y - robot_y)
 
             # Check if goal is reached
             if dist_to_goal < goal_reached_threshold:
-                self.get_logger().info('Goal coordinate reached! Hovering.')
+                self.get_logger().info('Goal coordinate reached! Stopping.')
                 self.current_goal = None
                 self.publish_halt(msg.header)
                 return
@@ -120,8 +120,8 @@ class LocalPlanner(Node):
                 speed = max(0.1, speed)  # Maintain minimum control authority
 
             # Calculate Attractive Force vector
-            f_att_x = ((goal_x - uav_x) / dist_to_goal) * speed
-            f_att_y = ((goal_y - uav_y) / dist_to_goal) * speed
+            f_att_x = ((goal_x - robot_x) / dist_to_goal) * speed
+            f_att_y = ((goal_y - robot_y) / dist_to_goal) * speed
 
         else:
             # Fallback Reactive Mode: fly straight ahead while dodging obstacles
@@ -147,8 +147,8 @@ class LocalPlanner(Node):
                     obs_x = origin_x + (ix + 0.5) * res
                     obs_y = origin_y + (iy + 0.5) * res
 
-                    dx = uav_x - obs_x
-                    dy = uav_y - obs_y
+                    dx = robot_x - obs_x
+                    dy = robot_y - obs_y
                     dist_to_obs = math.hypot(dx, dy)
 
                     if dist_to_obs < influence_radius and dist_to_obs > 0.1:

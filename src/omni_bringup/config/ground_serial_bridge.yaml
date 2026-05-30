@@ -1,6 +1,7 @@
 ground_serial_bridge:
   ros__parameters:
     planner_cmd_topic: /nav/cmd_vel
+    planner_cmd_unstamped_topic: /cmd_vel
     planner_emergency_topic: /nav/emergency
     planner_safety_topic: /nav/safety_status
     command_output_frame: base_link

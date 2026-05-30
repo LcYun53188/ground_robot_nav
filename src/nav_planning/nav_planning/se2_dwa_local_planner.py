@@ -12,7 +12,7 @@ from tf2_ros import Buffer, TransformException, TransformListener
 
 
 class SE2DWALocalPlanner(Node):
-    """Lightweight SE(2) DWA planner for 2D UAV navigation."""
+    """Lightweight SE(2) DWA planner for ground robot navigation."""
 
     def __init__(self):
         super().__init__("se2_dwa_local_planner")

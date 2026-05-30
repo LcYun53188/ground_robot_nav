@@ -8,7 +8,7 @@ Purpose:
 
 Input Topics:
   - /local_map/occupancy (OccupancyGrid): 本地二维占用栅格
-  - /nav/goal_pose (PoseStamped): 目标位置 (可选, 无则前向飞行)
+  - /nav/goal_pose (PoseStamped): 目标位置
   - /tf: TF树 (需要 map → base_link 或 odom → base_link)
 
 Output Topics:
@@ -27,7 +27,7 @@ Work Principle (W1-D4-D5):
   4. 在 TF 树中查询机器人当前位置
   5. 调用 DWB.computeVelocityCommands(robot_pose, robot_vel, goal_pose, costmap)
   6. 发布 /nav/cmd_vel
-  7. 若点云丢失或目标不可达, 回退到前向飞行 + 斥力
+  7. 若点云丢失或目标不可达, 回退到保守减速/停车策略
 
 Author: Copilot (2D Transition Phase 1)
 Date: 2026-05-17
@@ -340,7 +340,7 @@ class DWBBridge(Node):
         力的合成:
           1. 吸引力: 目标方向
           2. 斥力: 避开障碍 (从 Costmap 推导)
-          3. 前向驱动: 默认前向飞行
+          3. 前向驱动: 默认前向移动
         """
         cmd = Twist()
         cmd.linear.x = 1.0    # 默认前向速度

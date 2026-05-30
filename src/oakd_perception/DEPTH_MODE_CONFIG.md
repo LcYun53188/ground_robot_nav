@@ -199,7 +199,7 @@ ros2 param set /oakd_depth_node enable_active_stereo false
 
 | 应用场景 | 参数组合 |
 |--------|--------|
-| **UAV 户外飞行** | `passive:true, active:false` (纯被动，低功耗) |
+| **地面户外巡检** | `passive:true, active:false` (纯被动，低功耗) |
 | **室内 SLAM** | `passive:true, active:true, ir:1000` (混合高精度) |
 | **弱光环境** | `passive:false, active:true, ir:1600` (纯主动最强) |
 | **通用高精度** | `passive:true, active:true, ir:800` (平衡注入) |

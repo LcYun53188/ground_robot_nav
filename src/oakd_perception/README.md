@@ -17,7 +17,6 @@
 | **[DEPTH_MODE_CONFIG.md](DEPTH_MODE_CONFIG.md)** | 深度模式详细配置 | 需要调整深度参数 |
 | **[FOV_FILTER_QUICK_REF.md](FOV_FILTER_QUICK_REF.md)** | FOV过滤快速参考 | 需要过滤点云 |
 | **[FOV_FILTER_RULES.md](FOV_FILTER_RULES.md)** | FOV过滤详细原理 | 理解过滤机制 |
-| **[PX4_NAVIGATION_STRATEGY.md](../../docs/PX4_NAVIGATION_STRATEGY.md)** | PX4 导航与避障路线，对比 nav 与 3D 方案 | 面向无人机导航 |
 | **[CHANGELOG.md](CHANGELOG.md)** | 版本变更记录 | 了解更新内容 |
 
 ---
@@ -406,24 +405,10 @@ src/oakd_perception/
 
 ---
 
-## 9️⃣ 面向 PX4 的扩展路线
+## 9️⃣ 地面导航扩展路线
 
-这个仓库当前已经完成了“感知输入层”，下一阶段建议把导航层拆成两条线并行推进：
-
-| 路线 | 目标 | 作用 |
-|------|------|------|
-| `nav` 导航方案 | 先跑通 PX4 Offboard 与局部避障 | 快速验证闭环，适合原型阶段 |
-| `3D` 导航方案 | 面向真实无人机三维避障与路径规划 | 作为最终主方案 |
-
-**推荐顺序：**
-
-1. 先保持 `oakd_unified_node`、`imu_fusion` 和 TF 链路稳定。
-2. 用 `px4_bridge_node` 跑通最小闭环控制。
-3. 先实现 `nav` 方案，确保能在局部障碍前稳定制动或绕行。
-4. 再把点云处理升级到 3D 地图、体素或 ESDF。
-5. 最终让 `3D` 导航成为主路径，`nav` 作为安全降级层。
-
-**详细对比文档：** [PX4_NAVIGATION_STRATEGY.md](../../docs/PX4_NAVIGATION_STRATEGY.md)
+这个包提供 OAK-D 感知输入。地面导航主线应优先对接
+`isaac_ros_visual_slam`、`isaac_ros_nvblox` 和 Nav2。
 
 ---
 

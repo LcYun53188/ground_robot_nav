@@ -1,6 +1,6 @@
 # 全向轮启动包说明
 
-`omni_bringup` 是地面全向轮机器人的独立启动入口，不依赖 `uav_bringup`，也不会启动 `px4_comm_bridge`。
+`omni_bringup` 是地面全向轮机器人的独立启动入口。
 
 ## 启动范围
 
@@ -261,14 +261,14 @@ free_thresh: 0.25
 启用方式一：临时参数启动：
 
 ```bash
-./scripts/run_omni_nav.sh --offline-map /home/nuc/Program/uav_vision_ws/maps/site_a/map.yaml
+./scripts/run_omni_nav.sh --offline-map /home/nuc/Program/ground_robot_nav_ws/maps/site_a/map.yaml
 ```
 
 启用方式二：写入 `scripts/nav_launch.env`：
 
 ```bash
 OMNI_ENABLE_OFFLINE_MAP="true"
-OMNI_OFFLINE_MAP_YAML="/home/nuc/Program/uav_vision_ws/maps/site_a/map.yaml"
+OMNI_OFFLINE_MAP_YAML="/home/nuc/Program/ground_robot_nav_ws/maps/site_a/map.yaml"
 ```
 
 之后直接启动：
