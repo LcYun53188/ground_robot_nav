@@ -1,0 +1,21 @@
+diff --git a/nvblox_examples/COLCON_IGNORE b/nvblox_examples/COLCON_IGNORE
+new file mode 100644
+index 0000000..8b13789
+--- /dev/null
++++ b/nvblox_examples/COLCON_IGNORE
+@@ -0,0 +1 @@
++
+diff --git a/nvblox_test/COLCON_IGNORE b/nvblox_test/COLCON_IGNORE
+new file mode 100644
+index 0000000..8b13789
+--- /dev/null
++++ b/nvblox_test/COLCON_IGNORE
+@@ -0,0 +1 @@
++
+diff --git a/nvblox_test_data/COLCON_IGNORE b/nvblox_test_data/COLCON_IGNORE
+new file mode 100644
+index 0000000..8b13789
+--- /dev/null
++++ b/nvblox_test_data/COLCON_IGNORE
+@@ -0,0 +1 @@
++

@@ -27,3 +27,16 @@ apply_patch_if_needed() {
 apply_patch_if_needed "src/livox_ros_driver2" "patches/vendor/livox_ros_driver2.patch"
 apply_patch_if_needed "src/FAST_LIO_ROS2" "patches/vendor/fast_lio_ros2.patch"
 apply_patch_if_needed "third_party/Livox-SDK2" "patches/vendor/livox_sdk2.patch"
+apply_patch_if_needed "src/isaac_ros_nvblox" "patches/vendor/isaac_ros_nvblox.patch"
+apply_patch_if_needed "src/navigation2" "patches/vendor/navigation2.patch"
+apply_patch_if_needed "src/magic_enum" "patches/vendor/magic_enum.patch"
+apply_patch_if_needed "src/isaac_ros_nitros" "patches/vendor/isaac_ros_nitros.patch"
+apply_patch_if_needed "src/negotiated" "patches/vendor/negotiated.patch"
+apply_patch_if_needed "src/isaac_ros_image_pipeline" "patches/vendor/isaac_ros_image_pipeline.patch"
+if [ -f "src/isaac_ros_nvblox/nvblox_ros/nvblox_core/nvblox/thirdparty/stdgpu/stdgpu_fix_cuda13_2_proxy_reference.patch" ] &&
+  rg -q "::memset\\(block_hash.begin\\(\\) \\+ idx" \
+    "src/isaac_ros_nvblox/nvblox_ros/nvblox_core/nvblox/include/nvblox/gpu_hash/internal/cuda/impl/gpu_hash_interface_impl.cuh"; then
+  echo "Already applied patches/vendor/nvblox_core.patch"
+else
+  apply_patch_if_needed "src/isaac_ros_nvblox/nvblox_ros/nvblox_core" "patches/vendor/nvblox_core.patch"
+fi

@@ -13,3 +13,34 @@
 	path = third_party/Livox-SDK2
 	url = https://github.com/Livox-SDK/Livox-SDK2.git
 	branch = master
+[submodule "src/isaac_ros_visual_slam"]
+	path = src/isaac_ros_visual_slam
+	url = https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_visual_slam.git
+	branch = release-4.4
+[submodule "src/navigation2"]
+	path = src/navigation2
+	url = https://github.com/ros-navigation/navigation2.git
+	branch = jazzy
+[submodule "src/isaac_ros_nvblox"]
+	path = src/isaac_ros_nvblox
+	url = https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_nvblox.git
+	branch = release-4.4
+[submodule "src/isaac_ros_common"]
+	path = src/isaac_ros_common
+	url = https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_common.git
+	branch = release-4.4
+[submodule "src/isaac_ros_nitros"]
+	path = src/isaac_ros_nitros
+	url = https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_nitros.git
+	branch = release-4.4
+[submodule "src/magic_enum"]
+	path = src/magic_enum
+	url = https://github.com/Neargye/magic_enum.git
+	branch = master
+[submodule "src/negotiated"]
+	path = src/negotiated
+	url = https://github.com/osrf/negotiated.git
+[submodule "src/isaac_ros_image_pipeline"]
+	path = src/isaac_ros_image_pipeline
+	url = https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_image_pipeline.git
+	branch = release-4.4

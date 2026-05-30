@@ -1,0 +1,14 @@
+diff --git a/nav2_system_tests/COLCON_IGNORE b/nav2_system_tests/COLCON_IGNORE
+new file mode 100644
+index 0000000..8b13789
+--- /dev/null
++++ b/nav2_system_tests/COLCON_IGNORE
+@@ -0,0 +1 @@
++
+diff --git a/nav2_loopback_sim/COLCON_IGNORE b/nav2_loopback_sim/COLCON_IGNORE
+new file mode 100644
+index 0000000..8b13789
+--- /dev/null
++++ b/nav2_loopback_sim/COLCON_IGNORE
+@@ -0,0 +1 @@
++

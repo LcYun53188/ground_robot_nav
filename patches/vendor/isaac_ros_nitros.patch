@@ -1,0 +1,104 @@
+diff --git a/isaac_ros_gxf/CMakeLists.txt b/isaac_ros_gxf/CMakeLists.txt
+index 3197738..eaaa585 100644
+--- a/isaac_ros_gxf/CMakeLists.txt
++++ b/isaac_ros_gxf/CMakeLists.txt
+@@ -26,6 +26,7 @@ message( STATUS "Architecture: ${ARCHITECTURE}" )
+ 
+ find_package(ament_cmake_auto REQUIRED)
+ ament_auto_find_build_dependencies()
++find_path(MAGIC_ENUM_FLAT_INCLUDE_DIR magic_enum.hpp PATH_SUFFIXES magic_enum REQUIRED)
+ 
+ add_library(${PROJECT_NAME} STATIC src/isaac_ros_gxf.cpp)
+ 
+@@ -66,7 +67,7 @@ list(APPEND ${PROJECT_NAME}_CONFIG_EXTRAS cmake/isaac_ros_gxf-extras.cmake)
+ add_library(Core INTERFACE)
+ set_target_properties(Core PROPERTIES
+   INTERFACE_INCLUDE_DIRECTORIES
+-    "$<INSTALL_PREFIX>/share/${PROJECT_NAME}/gxf/include"
++    "$<INSTALL_PREFIX>/share/${PROJECT_NAME}/gxf/include;${MAGIC_ENUM_FLAT_INCLUDE_DIR}"
+ )
+ set_property(TARGET Core PROPERTY
+   INTERFACE_LINK_LIBRARIES
+diff --git a/isaac_ros_gxf/cmake/isaac_ros_gxf-extras.cmake b/isaac_ros_gxf/cmake/isaac_ros_gxf-extras.cmake
+index 75f9f10..01d364f 100644
+--- a/isaac_ros_gxf/cmake/isaac_ros_gxf-extras.cmake
++++ b/isaac_ros_gxf/cmake/isaac_ros_gxf-extras.cmake
+@@ -19,6 +19,9 @@
+ 
+ message(STATUS "Loading isaac_ros_gxf extras")
+ 
++include(CMakeFindDependencyMacro)
++find_dependency(magic_enum)
++
+ # Append local cmake module path for CMAKE_MODULE_PATH
+ ament_index_get_resource(ISAAC_ROS_GXF_CMAKE_PATH isaac_ros_gxf_cmake_path isaac_ros_gxf)
+ list(APPEND CMAKE_MODULE_PATH "${ISAAC_ROS_GXF_CMAKE_PATH}/modules")
+diff --git a/isaac_ros_nitros/CMakeLists.txt b/isaac_ros_nitros/CMakeLists.txt
+index e3005f0..403dd5c 100644
+--- a/isaac_ros_nitros/CMakeLists.txt
++++ b/isaac_ros_nitros/CMakeLists.txt
+@@ -26,6 +26,9 @@ install(PROGRAMS scripts/diagnostic_viewer.py DESTINATION lib/${PROJECT_NAME})
+ 
+ find_package(ament_cmake_auto REQUIRED)
+ ament_auto_find_build_dependencies()
++find_package(magic_enum REQUIRED)
++find_path(MAGIC_ENUM_FLAT_INCLUDE_DIR magic_enum.hpp PATH_SUFFIXES magic_enum REQUIRED)
++find_package(negotiated REQUIRED)
+ 
+ # Ensure CUDA imported targets (e.g., CUDA::nvtx3 / CUDA::nvToolsExt) are available
+ find_package(CUDAToolkit REQUIRED)
+@@ -103,9 +106,15 @@ ament_auto_add_library(${PROJECT_NAME} SHARED
+ )
+ target_link_libraries(${PROJECT_NAME}
+   Eigen3::Eigen
++  magic_enum::magic_enum
++  negotiated::negotiated
+   vpi
+   yaml-cpp
+ )
++target_include_directories(${PROJECT_NAME}
++  PUBLIC
++    ${MAGIC_ENUM_FLAT_INCLUDE_DIR}
++)
+ set_target_properties(${PROJECT_NAME} PROPERTIES
+   BUILD_WITH_INSTALL_RPATH TRUE
+   BUILD_RPATH_USE_ORIGIN TRUE
+diff --git a/isaac_ros_nitros/package.xml b/isaac_ros_nitros/package.xml
+index 4dc82a2..6be9319 100644
+--- a/isaac_ros_nitros/package.xml
++++ b/isaac_ros_nitros/package.xml
+@@ -32,6 +32,7 @@ license agreement from NVIDIA CORPORATION is strictly prohibited.
+   <depend>isaac_ros_gxf</depend>
+   <depend>gxf_isaac_optimizer</depend>
+   <depend>gxf_isaac_message_compositor</depend>
++  <depend>magic_enum</depend>
+   <depend>ament_index_cpp</depend>
+   <depend>libnvvpi4</depend>
+ 
+diff --git a/isaac_ros_nitros_type/isaac_ros_nitros_image_type/CMakeLists.txt b/isaac_ros_nitros_type/isaac_ros_nitros_image_type/CMakeLists.txt
+index d691f1e..18db47c 100644
+--- a/isaac_ros_nitros_type/isaac_ros_nitros_image_type/CMakeLists.txt
++++ b/isaac_ros_nitros_type/isaac_ros_nitros_image_type/CMakeLists.txt
+@@ -37,6 +37,7 @@ if(USE_NVTX)
+ endif()
+ 
+ # Dependencies
++find_package(isaac_ros_vpi_utils REQUIRED)
+ find_package(vpi REQUIRED)
+ find_package(yaml-cpp)
+ 
+@@ -47,9 +48,14 @@ ament_auto_add_library(${PROJECT_NAME} SHARED
+   src/nitros_image_view.cpp
+ )
+ target_link_libraries(${PROJECT_NAME}
++  ${isaac_ros_vpi_utils_LIBRARIES}
+   vpi
+   yaml-cpp
+ )
++target_include_directories(${PROJECT_NAME}
++  PUBLIC
++    ${isaac_ros_vpi_utils_INCLUDE_DIRS}
++)
+ set_target_properties(${PROJECT_NAME} PROPERTIES
+   BUILD_WITH_INSTALL_RPATH TRUE
+   BUILD_RPATH_USE_ORIGIN TRUE

@@ -1,0 +1,69 @@
+diff --git a/nvblox/thirdparty/stdgpu/stdgpu.cmake b/nvblox/thirdparty/stdgpu/stdgpu.cmake
+index 937dbd6..705b48e 100644
+--- a/nvblox/thirdparty/stdgpu/stdgpu.cmake
++++ b/nvblox/thirdparty/stdgpu/stdgpu.cmake
+@@ -22,7 +22,9 @@ else()
+       # Patch that prepends stdgpu namespace to conflicting cuda functions.
+       ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/stdgpu/stdgpu_fix_cuda12_6.patch
+       # Patch that fixes deprecated calls in CUDA13
+-      ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/stdgpu/stdgpu_fix_cuda13_0.patch)
++      ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/stdgpu/stdgpu_fix_cuda13_0.patch
++      # Patch that updates Thrust proxy reference customization for CUDA13.2 / CCCL.
++      ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/stdgpu/stdgpu_fix_cuda13_2_proxy_reference.patch)
+ 
+   FetchContent_Declare(
+     ext_stdgpu
+diff --git a/nvblox/thirdparty/stdgpu/stdgpu_fix_cuda13_2_proxy_reference.patch b/nvblox/thirdparty/stdgpu/stdgpu_fix_cuda13_2_proxy_reference.patch
+new file mode 100644
+index 0000000..2baba32
+--- /dev/null
++++ b/nvblox/thirdparty/stdgpu/stdgpu_fix_cuda13_2_proxy_reference.patch
+@@ -0,0 +1,34 @@
++diff --git a/src/stdgpu/impl/iterator_detail.h b/src/stdgpu/impl/iterator_detail.h
++index 5b1e636..7fca783 100644
++--- a/src/stdgpu/impl/iterator_detail.h
+++++ b/src/stdgpu/impl/iterator_detail.h
++@@ -390,21 +390,15 @@ inserter(Container& c)
++ namespace thrust::detail
++ {
++ 
++-template <typename Container>
++-struct is_proxy_reference<stdgpu::detail::back_insert_iterator_proxy<Container>> : public thrust::detail::true_type
++-{
++-};
++-
++-template <typename Container>
++-struct is_proxy_reference<stdgpu::detail::front_insert_iterator_proxy<Container>> : public thrust::detail::true_type
++-{
++-};
++-
++-template <typename Container>
++-struct is_proxy_reference<stdgpu::detail::insert_iterator_proxy<Container>> : public thrust::detail::true_type
++-{
++-};
+++template <typename Container>
+++inline constexpr bool is_proxy_reference_v<stdgpu::detail::back_insert_iterator_proxy<Container>> = true;
+++
+++template <typename Container>
+++inline constexpr bool is_proxy_reference_v<stdgpu::detail::front_insert_iterator_proxy<Container>> = true;
+++
+++template <typename Container>
+++inline constexpr bool is_proxy_reference_v<stdgpu::detail::insert_iterator_proxy<Container>> = true;
++ 
++ } // namespace thrust::detail
++ 
++#endif // STDGPU_ITERATORDETAIL_H
+diff --git a/nvblox/include/nvblox/gpu_hash/internal/cuda/impl/gpu_hash_interface_impl.cuh b/nvblox/include/nvblox/gpu_hash/internal/cuda/impl/gpu_hash_interface_impl.cuh
+index 894373a..25a32bc 100644
+--- a/nvblox/include/nvblox/gpu_hash/internal/cuda/impl/gpu_hash_interface_impl.cuh
++++ b/nvblox/include/nvblox/gpu_hash/internal/cuda/impl/gpu_hash_interface_impl.cuh
+@@ -50,8 +50,8 @@ __global__ void setToZero(Index3DDeviceHashMapType<BlockType> block_hash) {
+   int idx = threadIdx.x + blockIdx.x * blockDim.x;
+ 
+   if (idx < block_hash.max_size()) {
+-    memset(block_hash.begin() + idx, 0,
+-           sizeof(thrust::pair<Index3D, BlockType*>));
++    ::memset(block_hash.begin() + idx, 0,
++             sizeof(thrust::pair<Index3D, BlockType*>));
+   }
+ }
