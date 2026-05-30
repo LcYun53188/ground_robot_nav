@@ -1,0 +1,37 @@
+visual_slam:
+  ros__parameters:
+    use_sim_time: false
+
+    # OAK-D single stereo rig. Keep this first architecture in one sensor clock
+    # domain to avoid cross-device timestamp alignment work.
+    num_cameras: 2
+    min_num_images: 2
+    tracking_mode: 1
+    rectified_images: false
+
+    map_frame: map
+    odom_frame: odom
+    base_frame: base_link
+    imu_frame: oakd_imu_link
+    camera_optical_frames:
+      - oakd_left_camera_optical_frame
+      - oakd_right_camera_optical_frame
+
+    publish_map_to_odom_tf: true
+    publish_odom_to_base_tf: true
+    enable_localization_n_mapping: true
+
+    # Ground robots benefit from this when the sensor mount is rigid and the
+    # platform is expected to stay near planar motion.
+    enable_ground_constraint_in_odometry: true
+    enable_ground_constraint_in_slam: true
+
+    image_qos: SENSOR_DATA
+    imu_qos: SENSOR_DATA
+    image_buffer_size: 100
+    imu_buffer_size: 200
+
+    enable_slam_visualization: true
+    enable_observations_view: false
+    enable_landmarks_view: false
+    verbosity: 1

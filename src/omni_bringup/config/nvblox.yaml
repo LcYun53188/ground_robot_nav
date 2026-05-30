@@ -1,0 +1,23 @@
+nvblox_node:
+  ros__parameters:
+    use_sim_time: false
+    global_frame: odom
+    pose_frame: base_link
+    use_tf_transforms: true
+    use_topic_transforms: false
+
+    mapping_type: static_tsdf
+    voxel_size: 0.05
+    esdf_mode: 2d
+    publish_esdf_distance_slice: true
+    publish_map_slice: true
+    publish_mesh: true
+
+    slice_height: 0.12
+    min_height: 0.05
+    max_height: 1.20
+
+    maximum_sensor_message_queue_length: 10
+    back_projection_subsampling: 1
+    depth_qos: sensor_data
+    color_qos: sensor_data
