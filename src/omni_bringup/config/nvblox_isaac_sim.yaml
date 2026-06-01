@@ -1,0 +1,30 @@
+nvblox_node:
+  ros__parameters:
+    use_sim_time: true
+
+    # cuVSLAM publishes odom->base_link. nvblox integrates depth in odom so Nav2
+    # can consume a local rolling ESDF/costmap without wheel odometry.
+    global_frame: odom
+    pose_frame: base_link
+    use_tf_transforms: true
+    use_topic_transforms: false
+
+    mapping_type: static_tsdf
+    use_depth: true
+    use_color: false
+    voxel_size: 0.035
+    esdf_mode: 2d
+    publish_esdf_distance_slice: true
+    publish_map_slice: true
+    publish_mesh: true
+
+    # Low ground robot: keep the relevant vertical band tight enough for 250 mm
+    # passages, but leave room for brackets and hanging obstacles.
+    slice_height: 0.12
+    min_height: 0.03
+    max_height: 1.20
+
+    maximum_sensor_message_queue_length: 10
+    back_projection_subsampling: 1
+    depth_qos: sensor_data
+    color_qos: sensor_data

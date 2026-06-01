@@ -1,0 +1,45 @@
+visual_slam:
+  ros__parameters:
+    use_sim_time: false
+
+    # Handheld OAK-D validation profile.
+    #
+    # This keeps the same OAK-D stereo + IMU inputs as the ground robot profile,
+    # but disables the planar ground constraint. Handheld checks often include
+    # small roll/pitch changes while rotating the device; forcing planar motion
+    # can convert that attitude mismatch into visible lateral trajectory jumps.
+    # Use this file only for sensor validation. The ground robot profile can keep
+    # ground constraints enabled once the camera is rigidly mounted.
+    num_cameras: 2
+    min_num_images: 2
+    tracking_mode: 1
+    rectified_images: true
+    sync_matching_threshold_ms: 8.0
+    image_jitter_threshold_ms: 80.0
+    imu_jitter_threshold_ms: 20.0
+
+    map_frame: map
+    odom_frame: odom
+    base_frame: base_link
+    imu_frame: oakd_imu_link
+    camera_optical_frames:
+      - oakd_left_camera_optical_frame
+      - oakd_right_camera_optical_frame
+
+    publish_map_to_odom_tf: true
+    publish_odom_to_base_tf: true
+    enable_localization_n_mapping: true
+
+    enable_ground_constraint_in_odometry: false
+    enable_ground_constraint_in_slam: false
+
+    image_qos: SENSOR_DATA
+    imu_qos: SENSOR_DATA
+    image_buffer_size: 100
+    imu_buffer_size: 200
+    calibration_frequency: 250.0
+
+    enable_slam_visualization: true
+    enable_observations_view: false
+    enable_landmarks_view: false
+    verbosity: 1

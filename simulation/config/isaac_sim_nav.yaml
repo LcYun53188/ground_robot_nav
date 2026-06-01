@@ -1,0 +1,79 @@
+# Isaac Sim navigation simulation configuration.
+#
+# The runner reads this file before Isaac Sim starts. Keep paths configurable
+# because Isaac Sim is not installed in a fixed location on this workstation.
+isaac_sim:
+  # Preferred: set ISAAC_SIM_PYTHON or put the absolute path here, for example:
+  # /home/nuc/isaacsim/python.sh
+  python_executable: "/home/nuc/Program/ground_robot_nav_ws/.venv-isaac-sim/bin/python"
+
+  # Optional: path to isaac-sim.sh when you want to launch the full app manually.
+  app_executable: ""
+  headless: true
+  renderer: "RaytracedLighting"
+  anti_aliasing: 0
+  samples_per_pixel_per_frame: 1
+  multi_gpu: false
+  max_gpu_count: 1
+  disable_viewport_updates: true
+  enable_crashreporter: false
+
+ros:
+  domain_id: 0
+  use_sim_time: true
+  # Isaac Sim pip uses Python 3.11, while ROS Jazzy rclpy is Python 3.12 on
+  # this host. Keep ROS topic publication in the external ROS bridge process.
+  use_internal_python_bridge: false
+  start_external_ros_bridge: true
+
+scene:
+  stage_units_in_meters: 1.0
+  ground_size_m: 12.0
+  ground_thickness_m: 0.05
+  obstacle_count: 4
+
+  # Optional STL/USD import hooks. Leave empty to use built-in primitive geometry.
+  robot_mesh_stl_path: ""
+  scene_mesh_stl_path: ""
+  world_usd_path: ""
+
+robot:
+  prim_path: "/World/GroundRobot"
+  base_frame: "base_link"
+  odom_frame: "odom"
+  initial_pose:
+    x: 0.0
+    y: 0.0
+    z: 0.18
+    yaw: 0.0
+  max_linear_speed_mps: 0.6
+  max_angular_speed_radps: 1.0
+  cmd_vel_topic: "/cmd_vel"
+  odometry_topic: "/visual_slam/tracking/odometry"
+
+oakd:
+  prim_path: "/World/GroundRobot/OAKD"
+  imu_frame: "oakd_imu_link"
+  optical_frame: "oakd_camera_optical_frame"
+  left_frame: "oakd_left_camera_optical_frame"
+  right_frame: "oakd_right_camera_optical_frame"
+  pose:
+    x: 0.12
+    y: 0.0
+    z: 0.28
+    roll: 0.0
+    pitch: 0.0
+    yaw: 0.0
+  stereo_baseline_m: 0.075
+  resolution:
+    # Keep the no-model smoke test light enough for the Python fallback bridge.
+    # Real Isaac Sim camera validation can raise this once RTX/Kit is stable.
+    width: 320
+    height: 240
+  frequency_hz: 30
+  left_image_topic: "/oakd/left/image_raw"
+  right_image_topic: "/oakd/right/image_raw"
+  left_camera_info_topic: "/oakd/left/camera_info"
+  right_camera_info_topic: "/oakd/right/camera_info"
+  depth_image_topic: "/oakd/depth/image"
+  depth_camera_info_topic: "/oakd/depth/camera_info"

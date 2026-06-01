@@ -1,0 +1,38 @@
+visual_slam:
+  ros__parameters:
+    use_sim_time: false
+
+    # Diagnostic profile for isolating OAK-D stereo tracking from IMU effects.
+    #
+    # If this profile is stable while the VIO profile jumps, the remaining
+    # problem is very likely the camera-to-IMU frame/extrinsic convention or IMU
+    # calibration rather than feature tracking, camera info, or stereo sync.
+    # Keep this file as a test profile; it intentionally disables IMU fusion.
+    num_cameras: 2
+    min_num_images: 2
+    tracking_mode: 0
+    rectified_images: true
+    sync_matching_threshold_ms: 8.0
+    image_jitter_threshold_ms: 80.0
+
+    map_frame: map
+    odom_frame: odom
+    base_frame: base_link
+    camera_optical_frames:
+      - oakd_left_camera_optical_frame
+      - oakd_right_camera_optical_frame
+
+    publish_map_to_odom_tf: true
+    publish_odom_to_base_tf: true
+    enable_localization_n_mapping: true
+
+    enable_ground_constraint_in_odometry: false
+    enable_ground_constraint_in_slam: false
+
+    image_qos: SENSOR_DATA
+    image_buffer_size: 100
+
+    enable_slam_visualization: true
+    enable_observations_view: false
+    enable_landmarks_view: false
+    verbosity: 1
