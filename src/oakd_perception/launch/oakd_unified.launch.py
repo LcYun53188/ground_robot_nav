@@ -1,3 +1,4 @@
+import math
 import os
 
 from launch import LaunchDescription
@@ -6,15 +7,125 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
+def _quaternion_from_matrix(rotation):
+    """Convert a 3x3 rotation matrix to x/y/z/w quaternion."""
+    m00, m01, m02 = rotation[0]
+    m10, m11, m12 = rotation[1]
+    m20, m21, m22 = rotation[2]
+    trace = m00 + m11 + m22
+
+    if trace > 0.0:
+        s = math.sqrt(trace + 1.0) * 2.0
+        qw = 0.25 * s
+        qx = (m21 - m12) / s
+        qy = (m02 - m20) / s
+        qz = (m10 - m01) / s
+    elif m00 > m11 and m00 > m22:
+        s = math.sqrt(1.0 + m00 - m11 - m22) * 2.0
+        qw = (m21 - m12) / s
+        qx = 0.25 * s
+        qy = (m01 + m10) / s
+        qz = (m02 + m20) / s
+    elif m11 > m22:
+        s = math.sqrt(1.0 + m11 - m00 - m22) * 2.0
+        qw = (m02 - m20) / s
+        qx = (m01 + m10) / s
+        qy = 0.25 * s
+        qz = (m12 + m21) / s
+    else:
+        s = math.sqrt(1.0 + m22 - m00 - m11) * 2.0
+        qw = (m10 - m01) / s
+        qx = (m02 + m20) / s
+        qy = (m12 + m21) / s
+        qz = 0.25 * s
+
+    return qx, qy, qz, qw
+
+
+def _camera_socket_from_name(socket_name):
+    """Resolve a launch camera socket name to DepthAI's CameraBoardSocket."""
+    import depthai as dai
+
+    socket_key = socket_name.upper()
+    aliases = {
+        "RGB": "CAM_A",
+        "COLOR": "CAM_A",
+        "CENTER": "CAM_A",
+        "LEFT": "LEFT",
+        "RIGHT": "RIGHT",
+    }
+    socket_key = aliases.get(socket_key, socket_key)
+    return getattr(dai.CameraBoardSocket, socket_key)
+
+
+def _load_eeprom_imu_to_camera_tf(socket_name):
+    """Read OAK-D EEPROM IMU-to-camera extrinsics as static TF arguments."""
+    import depthai as dai
+
+    with dai.Device() as device:
+        calib = device.readCalibration()
+        socket = _camera_socket_from_name(socket_name)
+        transform = calib.getImuToCameraExtrinsics(socket, False)
+
+    # DepthAI EEPROM extrinsic translations are reported in centimeters.
+    # ROS TF uses meters, so convert here before publishing the static transform.
+    translation = [float(transform[row][3]) / 100.0 for row in range(3)]
+    rotation = [[float(transform[row][col]) for col in range(3)] for row in range(3)]
+    qx, qy, qz, qw = _quaternion_from_matrix(rotation)
+    return [
+        "--x",
+        f"{translation[0]:.9f}",
+        "--y",
+        f"{translation[1]:.9f}",
+        "--z",
+        f"{translation[2]:.9f}",
+        "--qx",
+        f"{qx:.12f}",
+        "--qy",
+        f"{qy:.12f}",
+        "--qz",
+        f"{qz:.12f}",
+        "--qw",
+        f"{qw:.12f}",
+    ]
+
+
+def _manual_imu_to_camera_tf_args():
+    """Fallback IMU-to-camera transform used before EEPROM extrinsics were read."""
+    return [
+        "--x",
+        "0",
+        "--y",
+        "0",
+        "--z",
+        "0",
+        "--roll",
+        "3.14",
+        "--pitch",
+        "0",
+        "--yaw",
+        "1.57",
+    ]
+
+
 def launch_setup(context, *args, **kwargs):
     params_file = LaunchConfiguration("params_file").perform(context)
+    imu_to_camera_tf_source = LaunchConfiguration("imu_to_camera_tf_source").perform(
+        context
+    )
+    imu_to_camera_socket = LaunchConfiguration("imu_to_camera_socket").perform(context)
 
     # 基础参数字典
     base_params = {
         "imu_frequency": int(LaunchConfiguration("imu_frequency").perform(context)),
+        "imu_axis_mode": LaunchConfiguration("imu_axis_mode").perform(context),
         "pointcloud_frequency": int(
             LaunchConfiguration("pointcloud_frequency").perform(context)
         ),
+        "enable_pointcloud_publish": LaunchConfiguration(
+            "enable_pointcloud_publish"
+        ).perform(context)
+        == "true",
         "enable_passive_stereo": LaunchConfiguration("enable_passive_stereo").perform(
             context
         )
@@ -76,6 +187,16 @@ def launch_setup(context, *args, **kwargs):
         "stereo_baseline_m": float(
             LaunchConfiguration("stereo_baseline_m").perform(context)
         ),
+        "image_frequency": int(LaunchConfiguration("image_frequency").perform(context)),
+        "image_poll_frequency": int(
+            LaunchConfiguration("image_poll_frequency").perform(context)
+        ),
+        "image_queue_size": int(
+            LaunchConfiguration("image_queue_size").perform(context)
+        ),
+        "image_pair_max_dt_ms": float(
+            LaunchConfiguration("image_pair_max_dt_ms").perform(context)
+        ),
         "imu_frame_id": LaunchConfiguration("imu_frame_id").perform(context),
         "pointcloud_frame_id": LaunchConfiguration("pointcloud_frame_id").perform(
             context
@@ -113,12 +234,19 @@ def launch_setup(context, *args, **kwargs):
     # static_transform_publisher 参数顺序：
     #   x y z yaw pitch roll parent_frame child_frame
     #
-    # 当前平移为 0：
-    #   - 暂不区分 IMU 原点和相机光学中心之间的物理偏移。
-    #   - 如果后续从 OAK-D EEPROM 或标定结果获得 IMU->Camera 的真实平移，
-    #     应填入这里的 x/y/z，单位为米。
+    # 默认优先读取 OAK-D EEPROM 的 factory calibration：
+    #   calib.getImuToCameraExtrinsics(<socket>, False)
+    # 这与 Luxonis/DepthAI 官方 IMU 文档一致，避免手写相机-IMU外参。
     #
-    # 当前旋转：
+    # 该 TF 与 oakd_unified_node.py 的 imu_axis_mode=raw 配套：
+    #   - /oakd/imu/raw 保持 DepthAI/OAK-D 原始 IMU 轴。
+    #   - 由这条静态 TF 描述原始 IMU frame 到 Luxonis RDF/ROS optical
+    #     camera frame 的关系。
+    #
+    # 对 Isaac ROS Visual SLAM 而言，相机-IMU外参必须和 IMU 消息的 frame
+    # 保持同一套轴约定。不要同时预转换 IMU 轴又继续使用原始 IMU 外参。
+    #
+    # 如果 EEPROM IMU extrinsics 不可用，则回退到历史手写旋转：
     #   - yaw = 1.57 rad
     #   - pitch = 0
     #   - roll = 3.14 rad
@@ -132,18 +260,32 @@ def launch_setup(context, *args, **kwargs):
     #   - 如果这里旋转方向写反，点云会出现轴向翻转。
     #   - 如果只是移动 OAK-D 在飞机上的安装位置，不应改这里，应改
     #     base_link -> oakd_imu_link。
+    imu_to_camera_args = _manual_imu_to_camera_tf_args()
+    if imu_to_camera_tf_source == "eeprom":
+        try:
+            imu_to_camera_args = _load_eeprom_imu_to_camera_tf(
+                imu_to_camera_socket
+            )
+            print(
+                "Loaded OAK-D EEPROM IMU-to-camera extrinsics "
+                f"for socket {imu_to_camera_socket}: {imu_to_camera_args}"
+            )
+        except Exception as exc:
+            print(
+                "WARNING: failed to read OAK-D EEPROM IMU-to-camera "
+                f"extrinsics for socket {imu_to_camera_socket}; "
+                f"falling back to manual TF: {exc}"
+            )
+
     static_tf_node = Node(
         package="tf2_ros",
         executable="static_transform_publisher",
         name="imu_to_camera_tf",
-        arguments=[
-            "0",
-            "0",
-            "0",
-            "1.57",
-            "0",
-            "3.14",
+        arguments=imu_to_camera_args
+        + [
+            "--frame-id",
             "oakd_imu_link",
+            "--child-frame-id",
             "oakd_camera_optical_frame",
         ],
     )
@@ -189,8 +331,20 @@ def generate_launch_description():
             DeclareLaunchArgument(
                 "params_file", default_value="", description="YAML参数文件的路径"
             ),
+            DeclareLaunchArgument(
+                "imu_to_camera_tf_source",
+                default_value="eeprom",
+                description="Use 'eeprom' OAK-D factory IMU-camera extrinsics or 'manual' fallback TF.",
+            ),
+            DeclareLaunchArgument(
+                "imu_to_camera_socket",
+                default_value="CAM_A",
+                description="CameraBoardSocket used for EEPROM IMU-to-camera extrinsics: CAM_A, LEFT, or RIGHT.",
+            ),
             DeclareLaunchArgument("imu_frequency", default_value="400"),
+            DeclareLaunchArgument("imu_axis_mode", default_value="raw"),
             DeclareLaunchArgument("pointcloud_frequency", default_value="20"),
+            DeclareLaunchArgument("enable_pointcloud_publish", default_value="true"),
             DeclareLaunchArgument("enable_passive_stereo", default_value="true"),
             DeclareLaunchArgument("enable_active_stereo", default_value="false"),
             DeclareLaunchArgument("ir_intensity", default_value="1600"),
@@ -242,6 +396,10 @@ def generate_launch_description():
                 "right_camera_frame_id", default_value="oakd_right_camera_optical_frame"
             ),
             DeclareLaunchArgument("stereo_baseline_m", default_value="0.075"),
+            DeclareLaunchArgument("image_frequency", default_value="25"),
+            DeclareLaunchArgument("image_poll_frequency", default_value="75"),
+            DeclareLaunchArgument("image_queue_size", default_value="8"),
+            DeclareLaunchArgument("image_pair_max_dt_ms", default_value="8.0"),
             DeclareLaunchArgument("left_camera_x", default_value="-0.0375"),
             DeclareLaunchArgument("right_camera_x", default_value="0.0375"),
             OpaqueFunction(function=launch_setup),

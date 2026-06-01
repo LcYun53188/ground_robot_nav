@@ -20,8 +20,10 @@ from launch.actions import (
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
-from launch_ros.actions import Node, SetRemap
+from launch_ros.actions import ComposableNodeContainer, Node, SetRemap
+from launch_ros.descriptions import ComposableNode
 from launch_ros.substitutions import FindPackageShare
+import yaml
 
 
 def _as_bool(value):
@@ -41,6 +43,18 @@ def _package_launch(package_name, launch_file):
     if not os.path.exists(path):
         return None
     return path
+
+
+def _load_ros_parameters(params_file, node_name):
+    if not params_file or not os.path.exists(params_file):
+        return {}
+    with open(params_file, "r", encoding="utf-8") as stream:
+        data = yaml.safe_load(stream) or {}
+    if node_name in data:
+        return data[node_name].get("ros__parameters", {})
+    if "ros__parameters" in data:
+        return data["ros__parameters"]
+    return {}
 
 
 def _optional_include(context, enabled_arg, package_arg, launch_arg, label, *, remaps=None, args=None):
@@ -74,9 +88,28 @@ def _optional_include(context, enabled_arg, package_arg, launch_arg, label, *, r
 
 def launch_setup(context, *args, **kwargs):
     visual_slam_params = LaunchConfiguration("visual_slam_params_file").perform(context)
+    visual_slam_node_params = _load_ros_parameters(visual_slam_params, "visual_slam")
+    visual_slam_node_params["use_sim_time"] = LaunchConfiguration("use_sim_time")
     ess_engine = LaunchConfiguration("ess_engine_file").perform(context)
+    oakd_imu_axis_mode = LaunchConfiguration("oakd_imu_axis_mode").perform(context)
 
     nodes = []
+
+    if (
+        _as_bool(LaunchConfiguration("launch_visual_slam").perform(context))
+        and oakd_imu_axis_mode != "raw"
+    ):
+        nodes.append(
+            LogInfo(
+                msg=(
+                    "WARNING: Isaac ROS Visual SLAM should use "
+                    "oakd_imu_axis_mode:=raw unless the OAK-D camera-to-IMU TF "
+                    "has been recalibrated for the remapped IMU frame. "
+                    f"Current oakd_imu_axis_mode={oakd_imu_axis_mode!r} can cause "
+                    "violent VIO jumps."
+                )
+            )
+        )
 
     if _as_bool(LaunchConfiguration("launch_oakd").perform(context)):
         nodes.append(
@@ -92,9 +125,30 @@ def launch_setup(context, *args, **kwargs):
                 ),
                 launch_arguments={
                     "imu_frequency": "400",
-                    "image_frequency": "30",
-                    "pointcloud_frequency": "15",
-                    "enable_depth_publish": "true",
+                    "imu_axis_mode": LaunchConfiguration("oakd_imu_axis_mode"),
+                    "imu_to_camera_tf_source": LaunchConfiguration(
+                        "oakd_imu_to_camera_tf_source"
+                    ),
+                    "imu_to_camera_socket": LaunchConfiguration(
+                        "oakd_imu_to_camera_socket"
+                    ),
+                    "image_frequency": LaunchConfiguration("oakd_image_frequency"),
+                    "image_poll_frequency": LaunchConfiguration(
+                        "oakd_image_poll_frequency"
+                    ),
+                    "image_queue_size": LaunchConfiguration("oakd_image_queue_size"),
+                    "image_pair_max_dt_ms": LaunchConfiguration(
+                        "oakd_image_pair_max_dt_ms"
+                    ),
+                    "pointcloud_frequency": LaunchConfiguration(
+                        "oakd_pointcloud_frequency"
+                    ),
+                    "enable_pointcloud_publish": LaunchConfiguration(
+                        "oakd_enable_pointcloud_publish"
+                    ),
+                    "enable_depth_publish": LaunchConfiguration(
+                        "oakd_enable_depth_publish"
+                    ),
                     "enable_passive_stereo": "true",
                     "enable_active_stereo": "false",
                     "imu_topic": LaunchConfiguration("imu_topic"),
@@ -125,29 +179,49 @@ def launch_setup(context, *args, **kwargs):
             )
         )
 
-    visual_slam_args = {
-        "use_sim_time": LaunchConfiguration("use_sim_time"),
-    }
-    if visual_slam_params:
-        visual_slam_args["params_file"] = visual_slam_params
-
-    nodes.extend(
-        _optional_include(
-            context,
-            "launch_visual_slam",
-            "visual_slam_package",
-            "visual_slam_launch_file",
-            "Isaac ROS Visual SLAM",
-            remaps=[
-                ("visual_slam/image_0", LaunchConfiguration("left_image_topic")),
-                ("visual_slam/image_1", LaunchConfiguration("right_image_topic")),
-                ("visual_slam/camera_info_0", LaunchConfiguration("left_camera_info_topic")),
-                ("visual_slam/camera_info_1", LaunchConfiguration("right_camera_info_topic")),
-                ("visual_slam/imu", LaunchConfiguration("imu_topic")),
-            ],
-            args=visual_slam_args,
-        )
-    )
+    if _as_bool(LaunchConfiguration("launch_visual_slam").perform(context)):
+        visual_slam_package = LaunchConfiguration("visual_slam_package").perform(context)
+        try:
+            get_package_share_directory(visual_slam_package)
+            nodes.append(
+                ComposableNodeContainer(
+                    name="visual_slam_launch_container",
+                    namespace="",
+                    package="rclcpp_components",
+                    executable="component_container",
+                    composable_node_descriptions=[
+                        ComposableNode(
+                            name="visual_slam_node",
+                            package=visual_slam_package,
+                            plugin="nvidia::isaac_ros::visual_slam::VisualSlamNode",
+                            parameters=[visual_slam_node_params],
+                            remappings=[
+                                ("visual_slam/image_0", LaunchConfiguration("left_image_topic")),
+                                ("visual_slam/image_1", LaunchConfiguration("right_image_topic")),
+                                (
+                                    "visual_slam/camera_info_0",
+                                    LaunchConfiguration("left_camera_info_topic"),
+                                ),
+                                (
+                                    "visual_slam/camera_info_1",
+                                    LaunchConfiguration("right_camera_info_topic"),
+                                ),
+                                ("visual_slam/imu", LaunchConfiguration("imu_topic")),
+                            ],
+                        )
+                    ],
+                    output="screen",
+                )
+            )
+        except PackageNotFoundError:
+            nodes.append(
+                LogInfo(
+                    msg=(
+                        f'Isaac ROS Visual SLAM requested, but package "{visual_slam_package}" '
+                        "was not found; skipping it"
+                    )
+                )
+            )
 
     ess_args = {
         "engine_file_path": ess_engine,
@@ -231,6 +305,7 @@ def launch_setup(context, *args, **kwargs):
                 "base_link",
                 LaunchConfiguration("imu_frame"),
             ],
+            condition=IfCondition(LaunchConfiguration("publish_oakd_static_tf")),
         )
     )
 
@@ -256,6 +331,20 @@ def generate_launch_description():
             DeclareLaunchArgument("launch_nvblox", default_value="true"),
             DeclareLaunchArgument("launch_nav2", default_value="true"),
             DeclareLaunchArgument("launch_ground_bridge", default_value="true"),
+            DeclareLaunchArgument("publish_oakd_static_tf", default_value="true"),
+            DeclareLaunchArgument("oakd_image_frequency", default_value="30"),
+            DeclareLaunchArgument("oakd_imu_axis_mode", default_value="raw"),
+            DeclareLaunchArgument("oakd_imu_to_camera_tf_source", default_value="manual"),
+            DeclareLaunchArgument("oakd_imu_to_camera_socket", default_value="CAM_A"),
+            DeclareLaunchArgument("oakd_image_poll_frequency", default_value="90"),
+            DeclareLaunchArgument("oakd_image_queue_size", default_value="8"),
+            DeclareLaunchArgument("oakd_image_pair_max_dt_ms", default_value="8.0"),
+            DeclareLaunchArgument("oakd_pointcloud_frequency", default_value="15"),
+            # Visual SLAM and nvblox consume stereo images, IMU, and depth image.
+            # The host-generated PointCloud2 stream is expensive and not needed
+            # in this NVIDIA path, so keep it opt-in.
+            DeclareLaunchArgument("oakd_enable_pointcloud_publish", default_value="false"),
+            DeclareLaunchArgument("oakd_enable_depth_publish", default_value="true"),
             DeclareLaunchArgument(
                 "visual_slam_package", default_value="isaac_ros_visual_slam"
             ),
@@ -337,8 +426,13 @@ def generate_launch_description():
             DeclareLaunchArgument("oakd_y", default_value="0.0"),
             DeclareLaunchArgument("oakd_z", default_value="0.28"),
             DeclareLaunchArgument("oakd_yaw", default_value="0.0"),
-            DeclareLaunchArgument("oakd_pitch", default_value="0.0"),
-            DeclareLaunchArgument("oakd_roll", default_value="0.0"),
+            # OAK-D raw IMU axes are not ROS base_link axes. With the OAK-D
+            # camera facing forward and level, these defaults align base_link
+            # (X forward, Y left, Z up) with the OAK-D IMU frame while keeping
+            # oakd_camera_optical_frame at the standard optical convention:
+            # Z forward, X right, Y down.
+            DeclareLaunchArgument("oakd_pitch", default_value="1.57079632679"),
+            DeclareLaunchArgument("oakd_roll", default_value="3.14159265359"),
             OpaqueFunction(function=launch_setup),
         ]
     )

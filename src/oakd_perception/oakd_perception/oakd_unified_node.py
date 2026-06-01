@@ -34,6 +34,7 @@ class OakDUnifiedNode(Node):
         self.declare_parameter("accel_full_scale", "accelerometer_4g")
         self.declare_parameter("imu_topic_name", "/oakd/imu/raw")
         self.declare_parameter("imu_frame_id", "oakd_imu_link")
+        self.declare_parameter("imu_axis_mode", "raw")
 
         # ============ 深度模式开关配置 ============
         self.declare_parameter("enable_passive_stereo", True)
@@ -42,6 +43,7 @@ class OakDUnifiedNode(Node):
 
         # ============ 点云过滤参数配置 ============
         self.declare_parameter("pointcloud_frequency", 20)
+        self.declare_parameter("enable_pointcloud_publish", True)
         self.declare_parameter("pointcloud_topic", "/oakd/points")
         self.declare_parameter("filtered_pointcloud_topic", "/oakd/points_filtered")
         self.declare_parameter("pointcloud_frame_id", "oakd_imu_link")
@@ -69,6 +71,9 @@ class OakDUnifiedNode(Node):
         self.declare_parameter("right_camera_frame_id", "oakd_right_camera_optical_frame")
         self.declare_parameter("stereo_baseline_m", 0.075)
         self.declare_parameter("image_frequency", 30)
+        self.declare_parameter("image_poll_frequency", 90)
+        self.declare_parameter("image_queue_size", 8)
+        self.declare_parameter("image_pair_max_dt_ms", 8.0)
 
         # 获取IMU参数
         self.imu_frequency = self.get_parameter("imu_frequency").value
@@ -76,6 +81,8 @@ class OakDUnifiedNode(Node):
         self.accel_full_scale = self.get_parameter("accel_full_scale").value
         self.imu_topic_name = self.get_parameter("imu_topic_name").value
         self.imu_frame_id = self.get_parameter("imu_frame_id").value
+        self.imu_axis_mode = self.get_parameter("imu_axis_mode").value
+        self._warned_unknown_imu_axis_mode = False
 
         # 获取深度参数
         self.enable_passive_stereo = self.get_parameter("enable_passive_stereo").value
@@ -84,6 +91,9 @@ class OakDUnifiedNode(Node):
 
         # 获取点云参数
         self.pointcloud_frequency = self.get_parameter("pointcloud_frequency").value
+        self.enable_pointcloud_publish = self.get_parameter(
+            "enable_pointcloud_publish"
+        ).value
         self.pointcloud_topic = self.get_parameter("pointcloud_topic").value
         self.filtered_pointcloud_topic = self.get_parameter(
             "filtered_pointcloud_topic"
@@ -123,6 +133,11 @@ class OakDUnifiedNode(Node):
         self.right_camera_frame_id = self.get_parameter("right_camera_frame_id").value
         self.stereo_baseline_m = float(self.get_parameter("stereo_baseline_m").value)
         self.image_frequency = self.get_parameter("image_frequency").value
+        self.image_poll_frequency = self.get_parameter("image_poll_frequency").value
+        self.image_queue_size = int(self.get_parameter("image_queue_size").value)
+        self.image_pair_max_dt_ms = float(
+            self.get_parameter("image_pair_max_dt_ms").value
+        )
 
         sensor_qos = QoSProfile(
             history=QoSHistoryPolicy.KEEP_LAST,
@@ -139,12 +154,13 @@ class OakDUnifiedNode(Node):
 
         # 发布器
         self.imu_pub = self.create_publisher(Imu, self.imu_topic_name, imu_qos)
-        self.pc_pub = self.create_publisher(
-            PointCloud2, self.pointcloud_topic, sensor_qos
-        )
-        self.filtered_pc_pub = self.create_publisher(
-            PointCloud2, self.filtered_pointcloud_topic, sensor_qos
-        )
+        if self.enable_pointcloud_publish:
+            self.pc_pub = self.create_publisher(
+                PointCloud2, self.pointcloud_topic, sensor_qos
+            )
+            self.filtered_pc_pub = self.create_publisher(
+                PointCloud2, self.filtered_pointcloud_topic, sensor_qos
+            )
         if self.enable_image_publish:
             self.left_pub = self.create_publisher(
                 Image, self.left_image_topic, sensor_qos
@@ -173,6 +189,9 @@ class OakDUnifiedNode(Node):
         self.right_queue = None
         self.pipeline = dai.Pipeline()
         self.device_time_base = None
+        self.last_image_stamp_seconds = None
+        self.image_publish_count = 0
+        self.image_drop_count = 0
 
         # 设置管道
         try:
@@ -195,6 +214,13 @@ class OakDUnifiedNode(Node):
             f"深度模式 - 被动立体: {self.enable_passive_stereo}, "
             f"主动立体: {self.enable_active_stereo}"
         )
+        self.get_logger().info(
+            "OAK-D输出配置: "
+            f"image_frequency={self.image_frequency}Hz, "
+            f"image_poll_frequency={self.image_poll_frequency}Hz, "
+            f"depth_publish={self.enable_depth_publish}, "
+            f"pointcloud_publish={self.enable_pointcloud_publish}"
+        )
         if self.enable_active_stereo:
             self.get_logger().info(f"IR强度: {self.ir_intensity}")
 
@@ -202,13 +228,14 @@ class OakDUnifiedNode(Node):
         imu_period = 1.0 / self.imu_frequency
         self.imu_timer = self.create_timer(imu_period, self.publish_imu)
 
-        # 点云定时器：低频 (20Hz -> 50ms)
-        pc_period = 1.0 / self.pointcloud_frequency
-        self.pc_timer = self.create_timer(pc_period, self.publish_pointcloud)
+        if self.enable_pointcloud_publish:
+            # 点云定时器：低频 (20Hz -> 50ms)
+            pc_period = 1.0 / self.pointcloud_frequency
+            self.pc_timer = self.create_timer(pc_period, self.publish_pointcloud)
 
         # 图像定时器
         if self.enable_image_publish:
-            image_period = 1.0 / self.image_frequency
+            image_period = 1.0 / max(float(self.image_poll_frequency), 1.0)
             self.image_timer = self.create_timer(image_period, self.publish_images)
 
     def setup_fov_boundary_filter(self):
@@ -288,7 +315,7 @@ class OakDUnifiedNode(Node):
         )
         imu.setBatchReportThreshold(1)
         imu.setMaxBatchReports(10)
-        self.imu_queue = imu.out.createOutputQueue()
+        self.imu_queue = imu.out.createOutputQueue(maxSize=20, blocking=False)
         self.get_logger().info(f"IMU管道配置完成: {self.imu_frequency}Hz")
 
         # ============ 配置深度 ============
@@ -298,8 +325,10 @@ class OakDUnifiedNode(Node):
 
         monoLeft.setResolution(dai.MonoCameraProperties.SensorResolution.THE_400_P)
         monoLeft.setBoardSocket(dai.CameraBoardSocket.LEFT)
+        monoLeft.setFps(float(self.image_frequency))
         monoRight.setResolution(dai.MonoCameraProperties.SensorResolution.THE_400_P)
         monoRight.setBoardSocket(dai.CameraBoardSocket.RIGHT)
+        monoRight.setFps(float(self.image_frequency))
 
         # 主动立体配置
         ir_enabled = False
@@ -365,10 +394,15 @@ class OakDUnifiedNode(Node):
         if self.enable_image_publish:
             # Publish StereoDepth's rectified outputs instead of the raw
             # wide-FOV mono streams.
-            self.left_queue = stereo.rectifiedLeft.createOutputQueue()
-            self.right_queue = stereo.rectifiedRight.createOutputQueue()
+            self.left_queue = stereo.rectifiedLeft.createOutputQueue(
+                maxSize=max(self.image_queue_size, 1), blocking=False
+            )
+            self.right_queue = stereo.rectifiedRight.createOutputQueue(
+                maxSize=max(self.image_queue_size, 1), blocking=False
+            )
 
-        self.depth_queue = stereo.depth.createOutputQueue()
+        if self.enable_depth_publish or self.enable_pointcloud_publish:
+            self.depth_queue = stereo.depth.createOutputQueue(maxSize=4, blocking=False)
         self.get_logger().info("深度管道配置完成")
 
     def setup_calibration(self):
@@ -388,26 +422,26 @@ class OakDUnifiedNode(Node):
         self.cy = self.depth_intrinsics["cy"]
 
         try:
-            device = self.pipeline.getDevice()
-            if device is not None and hasattr(device, "readCalibration"):
-                calibData = device.readCalibration()
-                self.left_intrinsics = self._read_camera_intrinsics(
-                    calibData, dai.CameraBoardSocket.LEFT, default_intrinsics
-                )
-                self.right_intrinsics = self._read_camera_intrinsics(
-                    calibData, dai.CameraBoardSocket.RIGHT, default_intrinsics
-                )
-                self.depth_intrinsics = self.right_intrinsics.copy()
-                self.fx = self.depth_intrinsics["fx"]
-                self.fy = self.depth_intrinsics["fy"]
-                self.cx = self.depth_intrinsics["cx"]
-                self.cy = self.depth_intrinsics["cy"]
-                self.get_logger().info(
-                    "标定信息已加载: "
-                    f"left_fx={self.left_intrinsics['fx']:.1f}, "
-                    f"right_fx={self.right_intrinsics['fx']:.1f}, "
-                    f"depth_fx={self.depth_intrinsics['fx']:.1f}"
-                )
+            calibData = self.pipeline.getCalibrationData()
+            self.left_intrinsics = self._read_camera_intrinsics(
+                calibData, dai.CameraBoardSocket.LEFT, default_intrinsics
+            )
+            self.right_intrinsics = self._read_camera_intrinsics(
+                calibData, dai.CameraBoardSocket.RIGHT, default_intrinsics
+            )
+            self.depth_intrinsics = self.right_intrinsics.copy()
+            self._load_stereo_baseline(calibData)
+            self.fx = self.depth_intrinsics["fx"]
+            self.fy = self.depth_intrinsics["fy"]
+            self.cx = self.depth_intrinsics["cx"]
+            self.cy = self.depth_intrinsics["cy"]
+            self.get_logger().info(
+                "标定信息已加载: "
+                f"left_fx={self.left_intrinsics['fx']:.1f}, "
+                f"right_fx={self.right_intrinsics['fx']:.1f}, "
+                f"depth_fx={self.depth_intrinsics['fx']:.1f}, "
+                f"baseline={self.stereo_baseline_m:.4f}m"
+            )
         except Exception as e:
             self.get_logger().warn(f"标定信息加载失败，使用默认值: {e}")
 
@@ -424,6 +458,43 @@ class OakDUnifiedNode(Node):
         except Exception as exc:
             self.get_logger().warn(f"{socket} 标定信息读取失败，使用默认值: {exc}")
             return fallback.copy()
+
+    def _load_stereo_baseline(self, calib_data):
+        """Read stereo baseline from OAK-D EEPROM calibration when available."""
+        try:
+            baseline_cm = calib_data.getBaselineDistance(
+                dai.CameraBoardSocket.LEFT, dai.CameraBoardSocket.RIGHT
+            )
+            if baseline_cm > 0.0:
+                self.stereo_baseline_m = float(baseline_cm) / 100.0
+        except Exception as exc:
+            self.get_logger().warn(
+                f"双目基线标定读取失败，继续使用参数值: {exc}"
+            )
+
+    def _convert_imu_vector_to_ros(self, x_raw, y_raw, z_raw):
+        """Convert DepthAI raw IMU axes into the declared ROS IMU frame."""
+        if self.imu_axis_mode == "raw":
+            return x_raw, y_raw, z_raw
+
+        if self.imu_axis_mode == "swap_yaw_roll_invert_pitch":
+            # Diagnostic-only host-side remap for checking raw IMU fields.
+            # Do not use this with VIO unless the camera-to-IMU TF is updated
+            # to the same frame convention.
+            return z_raw, -y_raw, x_raw
+
+        if self.imu_axis_mode == "oakd_to_ros":
+            # OAK-D raw IMU axes are not ROS base-style axes. With the camera
+            # facing forward and level, this maps camera-forward to ROS +X,
+            # camera-left to ROS +Y, and camera-up/yaw to ROS +Z.
+            return z_raw, -y_raw, -x_raw
+
+        if not self._warned_unknown_imu_axis_mode:
+            self.get_logger().warn(
+                f"未知 imu_axis_mode={self.imu_axis_mode!r}，回退为 raw"
+            )
+            self._warned_unknown_imu_axis_mode = True
+        return x_raw, y_raw, z_raw
 
     def publish_imu(self):
         """Publish IMU data."""
@@ -442,15 +513,25 @@ class OakDUnifiedNode(Node):
 
                 accel_data = getattr(packet, "acceleroMeter", None)
                 if accel_data is not None:
-                    imu_msg.linear_acceleration.x = float(getattr(accel_data, "x", 0.0))
-                    imu_msg.linear_acceleration.y = float(getattr(accel_data, "y", 0.0))
-                    imu_msg.linear_acceleration.z = float(getattr(accel_data, "z", 0.0))
+                    ax, ay, az = self._convert_imu_vector_to_ros(
+                        float(getattr(accel_data, "x", 0.0)),
+                        float(getattr(accel_data, "y", 0.0)),
+                        float(getattr(accel_data, "z", 0.0)),
+                    )
+                    imu_msg.linear_acceleration.x = ax
+                    imu_msg.linear_acceleration.y = ay
+                    imu_msg.linear_acceleration.z = az
 
                 gyro_data = getattr(packet, "gyroscope", None)
                 if gyro_data is not None:
-                    imu_msg.angular_velocity.x = float(getattr(gyro_data, "x", 0.0))
-                    imu_msg.angular_velocity.y = float(getattr(gyro_data, "y", 0.0))
-                    imu_msg.angular_velocity.z = float(getattr(gyro_data, "z", 0.0))
+                    wx, wy, wz = self._convert_imu_vector_to_ros(
+                        float(getattr(gyro_data, "x", 0.0)),
+                        float(getattr(gyro_data, "y", 0.0)),
+                        float(getattr(gyro_data, "z", 0.0)),
+                    )
+                    imu_msg.angular_velocity.x = wx
+                    imu_msg.angular_velocity.y = wy
+                    imu_msg.angular_velocity.z = wz
 
                 device_seconds = self._extract_device_time(
                     packet, accel_data, gyro_data
@@ -621,19 +702,46 @@ class OakDUnifiedNode(Node):
         ]
         return msg
 
+    def _latest_queue_frame(self, queue):
+        """Drain a DepthAI queue and return the newest available frame."""
+        latest = None
+        while True:
+            frame = queue.tryGet()
+            if frame is None:
+                return latest
+            latest = frame
+
     def publish_images(self):
-        """Publish left and right stereo images."""
+        """Publish synchronized left and right rectified stereo images."""
         if self.left_queue is None or self.right_queue is None:
             return
 
         try:
-            inLeft = self.left_queue.tryGet()
-            inRight = self.right_queue.tryGet()
+            inLeft = self._latest_queue_frame(self.left_queue)
+            inRight = self._latest_queue_frame(self.right_queue)
 
             if inLeft is None or inRight is None:
                 return
 
-            device_seconds = self._extract_device_time(inLeft, inRight)
+            left_seconds = self._extract_device_time(inLeft)
+            right_seconds = self._extract_device_time(inRight)
+            if left_seconds is not None and right_seconds is not None:
+                pair_dt_ms = abs(left_seconds - right_seconds) * 1000.0
+                if pair_dt_ms > self.image_pair_max_dt_ms:
+                    self.image_drop_count += 1
+                    if self.image_drop_count <= 5 or self.image_drop_count % 30 == 0:
+                        self.get_logger().warn(
+                            "左右目时间戳差异过大，丢弃本组图像: "
+                            f"dt={pair_dt_ms:.2f}ms, "
+                            f"limit={self.image_pair_max_dt_ms:.2f}ms, "
+                            f"drops={self.image_drop_count}"
+                        )
+                    return
+
+            if left_seconds is not None and right_seconds is not None:
+                device_seconds = 0.5 * (left_seconds + right_seconds)
+            else:
+                device_seconds = self._extract_device_time(inLeft, inRight)
             stamp = self._stamp_from_device_time(device_seconds)
 
             left_msg = self.create_image_msg(
@@ -660,6 +768,18 @@ class OakDUnifiedNode(Node):
                     tx=right_tx,
                 )
             )
+            self.image_publish_count += 1
+            if device_seconds is not None:
+                if self.last_image_stamp_seconds is not None:
+                    image_dt_ms = (
+                        device_seconds - self.last_image_stamp_seconds
+                    ) * 1000.0
+                    if image_dt_ms > 80.0:
+                        self.get_logger().warn(
+                            "OAK-D stereo image interval is high: "
+                            f"{image_dt_ms:.2f}ms"
+                        )
+                self.last_image_stamp_seconds = device_seconds
         except Exception as e:
             self.get_logger().warn(f"图像发布失败: {e}")
 
@@ -680,7 +800,8 @@ def main(args=None):
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":

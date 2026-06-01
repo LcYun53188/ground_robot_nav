@@ -14,12 +14,15 @@ class OakDImuNode(Node):
         self.declare_parameter("accel_full_scale", "accelerometer_4g")
         self.declare_parameter("topic_name", "/oakd/imu/raw")
         self.declare_parameter("frame_id", "oakd_imu_link")
+        self.declare_parameter("imu_axis_mode", "raw")
 
         self.imu_frequency = self.get_parameter("imu_frequency").value
         self.gyro_full_scale = self.get_parameter("gyro_full_scale").value
         self.accel_full_scale = self.get_parameter("accel_full_scale").value
         self.topic_name = self.get_parameter("topic_name").value
         self.frame_id = self.get_parameter("frame_id").value
+        self.imu_axis_mode = self.get_parameter("imu_axis_mode").value
+        self._warned_unknown_imu_axis_mode = False
 
         self.imu_pub = self.create_publisher(Imu, self.topic_name, 10)
         self.imu_queue = None
@@ -35,11 +38,29 @@ class OakDImuNode(Node):
             )
             self.get_logger().info(f"IMU output topic: {self.topic_name}")
             self.get_logger().info(f"IMU frame_id: {self.frame_id}")
+            self.get_logger().info(f"IMU axis mode: {self.imu_axis_mode}")
         except Exception as e:
             self.get_logger().error(f"Failed to start IMU pipeline: {e}")
             return
 
         self.timer = self.create_timer(0.01, self.publish_imu)
+
+    def _convert_imu_vector_to_ros(self, x_raw, y_raw, z_raw):
+        if self.imu_axis_mode == "raw":
+            return x_raw, y_raw, z_raw
+        if self.imu_axis_mode == "swap_yaw_roll_invert_pitch":
+            # Diagnostic-only host-side remap for checking raw IMU fields.
+            # Do not use this with VIO unless the camera-to-IMU TF is updated
+            # to the same frame convention.
+            return z_raw, -y_raw, x_raw
+        if self.imu_axis_mode == "oakd_to_ros":
+            return z_raw, -y_raw, -x_raw
+        if not self._warned_unknown_imu_axis_mode:
+            self.get_logger().warn(
+                f"Unknown imu_axis_mode={self.imu_axis_mode!r}; falling back to raw"
+            )
+            self._warned_unknown_imu_axis_mode = True
+        return x_raw, y_raw, z_raw
 
     def setup_pipeline(self):
         try:
@@ -73,15 +94,25 @@ class OakDImuNode(Node):
 
                 accel_data = getattr(packet, "acceleroMeter", None)
                 if accel_data is not None:
-                    imu_msg.linear_acceleration.x = float(getattr(accel_data, "x", 0.0))
-                    imu_msg.linear_acceleration.y = float(getattr(accel_data, "y", 0.0))
-                    imu_msg.linear_acceleration.z = float(getattr(accel_data, "z", 0.0))
+                    ax, ay, az = self._convert_imu_vector_to_ros(
+                        float(getattr(accel_data, "x", 0.0)),
+                        float(getattr(accel_data, "y", 0.0)),
+                        float(getattr(accel_data, "z", 0.0)),
+                    )
+                    imu_msg.linear_acceleration.x = ax
+                    imu_msg.linear_acceleration.y = ay
+                    imu_msg.linear_acceleration.z = az
 
                 gyro_data = getattr(packet, "gyroscope", None)
                 if gyro_data is not None:
-                    imu_msg.angular_velocity.x = float(getattr(gyro_data, "x", 0.0))
-                    imu_msg.angular_velocity.y = float(getattr(gyro_data, "y", 0.0))
-                    imu_msg.angular_velocity.z = float(getattr(gyro_data, "z", 0.0))
+                    wx, wy, wz = self._convert_imu_vector_to_ros(
+                        float(getattr(gyro_data, "x", 0.0)),
+                        float(getattr(gyro_data, "y", 0.0)),
+                        float(getattr(gyro_data, "z", 0.0)),
+                    )
+                    imu_msg.angular_velocity.x = wx
+                    imu_msg.angular_velocity.y = wy
+                    imu_msg.angular_velocity.z = wz
 
                 imu_msg.linear_acceleration_covariance = [
                     0.01,
