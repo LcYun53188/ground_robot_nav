@@ -135,13 +135,78 @@ STATIC_ONLY=true ./scripts/check_nvidia_3d_nav_mvp.sh
 运行期重点检查：
 
 - `/visual_slam/tracking/odometry`
+- `/visual_slam/guarded_odometry`
+- `/visual_slam/odom_guard/status`
+- `/odometry/filtered`
 - `odom -> base_link`
+- `/oakd/depth/image`
+- `/oakd/depth/camera_info`
 - `/nvblox_node/static_map_slice`
+- `/local_costmap/nvblox_layer`
 - `/cmd_vel`
 - Nav2 lifecycle 状态
 
 如果只检查 OAK-D 硬件和 Visual SLAM，请优先使用
 [OAK-D Visual SLAM 与 RViz 验证](./OAKD_VISUAL_SLAM_RVIZ.md)。
+
+## nvblox 地图与可视化
+
+当前 nvblox 输入不是主机生成的 PointCloud2，而是 OAK-D 的深度图：
+
+```text
+/oakd/depth/image + /oakd/depth/camera_info
+    -> nvblox_node
+    -> /nvblox_node/static_map_slice
+    -> Nav2 local/global nvblox_layer
+```
+
+`oakd_perception` 在 `oakd_enable_pointcloud_publish:=false` 时仍会发布
+`/oakd/depth/image` 和 `/oakd/depth/camera_info`。这样 nvblox 有深度输入，同时避免
+额外生成 PointCloud2 带来的 CPU 开销。
+
+默认用于导航的是 2D 地图切片和 Nav2 costmap：
+
+- `/nvblox_node/static_map_slice`
+- `/local_costmap/nvblox_layer`
+- `/local_costmap/costmap`
+- `/global_costmap/nvblox_layer`
+- `/global_costmap/costmap`
+
+查看地图的 RViz 预设：
+
+```bash
+env FASTDDS_BUILTIN_TRANSPORTS=UDPv4 ROS_LOG_DIR=/tmp/ros_log \
+./scripts/with_venv.sh ros2 run rviz2 rviz2 \
+  -d src/omni_bringup/rviz/nvblox_map_check.rviz
+```
+
+该预设默认只显示局部地图层，避免 RViz 同时刷新 local/global 多层地图导致画面卡顿。
+
+当前实测频率：
+
+- `/oakd/depth/image`：约 `9-10Hz`
+- `/nvblox_node/static_map_slice`：约 `4.5-4.8Hz`
+- `/local_costmap/nvblox_layer`：约 `3.8-4Hz`
+- `/local_costmap/costmap`：约 `3.8-4Hz`
+
+该频率可以用于低速室内导航验证。建议初期把线速度限制在 `0.2-0.35m/s`，角速度限制
+在 `0.4-0.8rad/s`。如果要做动态避障或高速窄通道通过，需要进一步提高地图频率，或
+增加 MID360 / bumper / 急停等近场安全输入。
+
+nvblox 仍在维护 3D TSDF/ESDF 地图，但默认不发布 mesh。原因是 Nav2 只消费 2D
+distance/map slice，mesh 可视化会增加负载。若要临时检查三维地图，可将
+`src/omni_bringup/config/nvblox_3d_nav.yaml` 中的 `publish_mesh` 改为 `true` 后重启。
+调试结束后应改回 `false`。
+
+当前高度过滤边界：
+
+- `min_height: 0.03`
+- `max_height: 1.20`
+- `slice_height: 0.12`
+
+因此用于导航的障碍不是只来自水平面。OAK-D 可见、且高度处于 `0.03m` 到 `1.20m`
+之间的障碍物会影响 nvblox / Nav2 costmap；超过该高度或相机看不到的障碍不会进入
+当前导航地图。
 
 ## Nav2 与 MPPI
 

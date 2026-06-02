@@ -70,6 +70,66 @@ Visualization Manager:
             Reliability Policy: Best Effort
             Value: /visual_slam/tracking/odometry
           Value: true
+        - Class: rviz_default_plugins/Odometry
+          Angle Tolerance: 0.1
+          Color: 70; 220; 120
+          Covariance:
+            Orientation:
+              Alpha: 0.2
+              Color: 255; 255; 127
+              Color Style: Unique
+              Frame: Local
+              Offset: 1
+              Scale: 1
+              Value: false
+            Position:
+              Alpha: 0.15
+              Color: 70; 220; 120
+              Scale: 1
+              Value: false
+            Value: false
+          Enabled: true
+          Keep: 50
+          Name: Guarded Odometry
+          Position Tolerance: 0.1
+          Shape: Arrow
+          Topic:
+            Depth: 10
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+            Value: /visual_slam/guarded_odometry
+          Value: true
+        - Class: rviz_default_plugins/Odometry
+          Angle Tolerance: 0.1
+          Color: 255; 210; 80
+          Covariance:
+            Orientation:
+              Alpha: 0.2
+              Color: 255; 255; 127
+              Color Style: Unique
+              Frame: Local
+              Offset: 1
+              Scale: 1
+              Value: false
+            Position:
+              Alpha: 0.15
+              Color: 255; 210; 80
+              Scale: 1
+              Value: false
+            Value: false
+          Enabled: true
+          Keep: 50
+          Name: Filtered Odometry
+          Position Tolerance: 0.1
+          Shape: Arrow
+          Topic:
+            Depth: 10
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+            Value: /odometry/filtered
+          Value: true
         - Class: rviz_default_plugins/Path
           Alpha: 1
           Buffer Length: 1

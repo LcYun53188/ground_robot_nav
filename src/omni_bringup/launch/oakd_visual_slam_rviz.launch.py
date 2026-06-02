@@ -39,6 +39,30 @@ def generate_launch_description():
         [
             DeclareLaunchArgument("use_sim_time", default_value="false"),
             DeclareLaunchArgument("launch_rviz", default_value="true"),
+            DeclareLaunchArgument("launch_odom_guard", default_value="true"),
+            DeclareLaunchArgument("launch_robot_localization", default_value="true"),
+            DeclareLaunchArgument(
+                "odom_guard_output_topic",
+                default_value="/visual_slam/guarded_odometry",
+            ),
+            DeclareLaunchArgument("odom_guard_publish_tf", default_value="false"),
+            DeclareLaunchArgument(
+                "filtered_odom_topic", default_value="/odometry/filtered"
+            ),
+            DeclareLaunchArgument(
+                "ekf_params_file",
+                default_value=PathJoinSubstitution(
+                    [bringup_share, "config", "ekf_visual_slam_3d.yaml"]
+                ),
+            ),
+            DeclareLaunchArgument("odom_guard_max_step_xy_m", default_value="0.20"),
+            DeclareLaunchArgument("odom_guard_max_step_z_m", default_value="0.15"),
+            DeclareLaunchArgument("odom_guard_max_yaw_step_deg", default_value="20.0"),
+            DeclareLaunchArgument("odom_guard_max_speed_xy_mps", default_value="1.2"),
+            DeclareLaunchArgument("odom_guard_max_yaw_rate_dps", default_value="120.0"),
+            DeclareLaunchArgument(
+                "odom_guard_max_hold_sec_before_reseed", default_value="2.0"
+            ),
             DeclareLaunchArgument("rviz_config", default_value=rviz_config),
             DeclareLaunchArgument("rviz_delay", default_value="3.0"),
             DeclareLaunchArgument("oakd_x", default_value="0.0"),
@@ -78,6 +102,36 @@ def generate_launch_description():
                     "launch_nvblox": "false",
                     "launch_nav2": "false",
                     "launch_ground_bridge": "false",
+                    "launch_odom_guard": LaunchConfiguration("launch_odom_guard"),
+                    "launch_robot_localization": LaunchConfiguration(
+                        "launch_robot_localization"
+                    ),
+                    "odom_guard_output_topic": LaunchConfiguration(
+                        "odom_guard_output_topic"
+                    ),
+                    "odom_guard_publish_tf": LaunchConfiguration(
+                        "odom_guard_publish_tf"
+                    ),
+                    "odom_guard_max_step_xy_m": LaunchConfiguration(
+                        "odom_guard_max_step_xy_m"
+                    ),
+                    "odom_guard_max_step_z_m": LaunchConfiguration(
+                        "odom_guard_max_step_z_m"
+                    ),
+                    "odom_guard_max_yaw_step_deg": LaunchConfiguration(
+                        "odom_guard_max_yaw_step_deg"
+                    ),
+                    "odom_guard_max_speed_xy_mps": LaunchConfiguration(
+                        "odom_guard_max_speed_xy_mps"
+                    ),
+                    "odom_guard_max_yaw_rate_dps": LaunchConfiguration(
+                        "odom_guard_max_yaw_rate_dps"
+                    ),
+                    "odom_guard_max_hold_sec_before_reseed": LaunchConfiguration(
+                        "odom_guard_max_hold_sec_before_reseed"
+                    ),
+                    "filtered_odom_topic": LaunchConfiguration("filtered_odom_topic"),
+                    "ekf_params_file": LaunchConfiguration("ekf_params_file"),
                     "publish_oakd_static_tf": "true",
                     "visual_slam_params_file": visual_slam_params_file,
                     "oakd_enable_depth_publish": "false",

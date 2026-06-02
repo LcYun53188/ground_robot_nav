@@ -17,6 +17,7 @@ setup(
     description='Safety monitor and emergency state publishing',
     license='Apache-2.0',
     entry_points={'console_scripts': [
+        'odom_jump_guard = nav_safety.odom_jump_guard:main',
         'safety_monitor = nav_safety.safety_monitor:main',
     ]},
 )

@@ -163,6 +163,11 @@ env FASTDDS_BUILTIN_TRANSPORTS=UDPv4 ROS_LOG_DIR=/tmp/ros_log \
 ```text
 OAK-D stereo + IMU
     -> Isaac ROS Visual SLAM / cuVSLAM
+    -> /visual_slam/tracking/odometry
+    -> odom_jump_guard
+    -> /visual_slam/guarded_odometry
+    -> robot_localization EKF
+    -> /odometry/filtered
     -> odom -> base_link
 OAK-D depth
     -> nvblox 3D map
@@ -201,7 +206,10 @@ OAK-D 输入：
 
 Visual SLAM / TF：
 
-- `/visual_slam/tracking/odometry`
+- `/visual_slam/tracking/odometry`：cuVSLAM 原始里程计，用于诊断和对比。
+- `/visual_slam/guarded_odometry`：跳变保护后的里程计，作为 EKF 输入。
+- `/visual_slam/odom_guard/status`：跳变保护状态；拒绝异常帧时会写明阈值原因。
+- `/odometry/filtered`：`robot_localization` EKF 输出，完整导航入口默认给 Nav2 使用。
 - `/visual_slam/tracking/vo_path`
 - `/visual_slam/status`
 - `odom -> base_link`
@@ -211,6 +219,62 @@ Visual SLAM / TF：
 - `/cmd_vel`
 - `/nav/emergency`
 - `/nav/safety_status`
+
+## Odom 跳变保护
+
+`nav_safety/odom_jump_guard` 会拒绝明显不符合地面机器人运动约束的 Visual SLAM
+位姿跳变。默认阈值：
+
+- 单帧 XY 位移 `> 0.20m`
+- 单帧 Z 位移 `> 0.15m`
+- 单帧 yaw 变化 `> 20deg`
+- XY 速度 `> 1.2m/s`
+- yaw 速度 `> 120deg/s`
+
+异常帧会被 hold 为上一帧；如果连续拒绝超过 `2.0s`，保护节点会重新设定基准，
+防止 Visual SLAM 初始化抖动后永久停在旧位姿。这个机制只能保护下游 Nav2 不立即
+吃到离谱跳变，不能修复低纹理导致的 VIO 失效。
+
+在 `nvidia_3d_nav.launch.py` 中，保护节点默认启用并发布受保护
+`/visual_slam/guarded_odometry`；`robot_localization` 默认启用并发布
+`/odometry/filtered` 和唯一的 `odom -> base_link` TF。此时 launch 会关闭
+Visual SLAM 原始 `odom -> base_link` TF，避免 TF 双发布。
+
+查看保护状态：
+
+```bash
+./scripts/with_venv.sh ros2 topic echo /visual_slam/odom_guard/status
+```
+
+## robot_localization 与独立 IMU
+
+完整导航入口默认启动 `robot_localization/ekf_node`：
+
+- 导航默认配置：`src/omni_bringup/config/ekf_visual_slam.yaml`
+- 输入：`/visual_slam/guarded_odometry`
+- 输出：`/odometry/filtered`
+- TF：发布唯一 `odom -> base_link`
+
+`ekf_visual_slam.yaml` 是二维导航配置，启用 `two_d_mode`，会把输出约束到
+`z=0` 且 roll/pitch 为 0。它适合 Nav2 平面导航，但不适合验证 OAK-D 的
+roll/pitch/yaw 轴向。
+
+RViz OAK-D 验证入口默认使用
+`src/omni_bringup/config/ekf_visual_slam_3d.yaml`。该配置关闭 `two_d_mode`，
+完整保留 cuVSLAM 原始 `odom -> base_link` 姿态关系，适合检查 roll、pitch、
+yaw 是否和接入 `robot_localization` 前一致。
+
+独立 IMU 预留配置：
+
+```bash
+./scripts/with_venv.sh ros2 launch omni_bringup nvidia_3d_nav.launch.py \
+  ekf_params_file:=/home/nuc/Program/ground_robot_nav_ws/src/omni_bringup/config/ekf_visual_slam_with_independent_imu.yaml
+```
+
+该配置默认使用 `/independent_imu/data`，且只融合 z 轴角速度。不要把它直接指向
+`/oakd/imu/raw`，因为 cuVSLAM 已经使用 OAK-D IMU；重复融合同一个 IMU 会让权重
+失真。独立 IMU 真正接入前，必须先补齐 `base_link -> independent_imu_frame`
+静态 TF，并验证 IMU `frame_id`、轴向、时间戳和协方差。
 
 ## 坐标系约定
 
@@ -252,6 +316,41 @@ odom
 - 验证 `odom -> base_link` 连续性和坐标轴方向。
 - 用 OAK-D depth + Visual SLAM TF 驱动 nvblox。
 - 在 nvblox costmap 上跑通 Nav2 闭环。
+
+当前实测 nvblox / Nav2 地图链路：
+
+- `/oakd/depth/image` 已作为 nvblox 深度输入，关闭 PointCloud2 时仍会发布。
+- `/nvblox_node/static_map_slice` 约 `4.5-4.8Hz`。
+- `/local_costmap/nvblox_layer` 和 `/local_costmap/costmap` 约 `3.8-4Hz`。
+- 该频率适合低速室内验证，建议线速度先限制在 `0.2-0.35m/s`，角速度先限制在 `0.4-0.8rad/s`。
+- nvblox 默认关闭 mesh 发布并对 depth 反投影做降采样，以优先保证导航实时性。
+
+查看 nvblox 地图：
+
+```bash
+env FASTDDS_BUILTIN_TRANSPORTS=UDPv4 ROS_LOG_DIR=/tmp/ros_log \
+./scripts/with_venv.sh ros2 launch src/omni_bringup/launch/nvidia_3d_nav.launch.py \
+  launch_ground_bridge:=false
+```
+
+另开终端：
+
+```bash
+env FASTDDS_BUILTIN_TRANSPORTS=UDPv4 ROS_LOG_DIR=/tmp/ros_log \
+./scripts/with_venv.sh ros2 run rviz2 rviz2 \
+  -d src/omni_bringup/rviz/nvblox_map_check.rviz
+```
+
+RViz 默认只打开局部地图层：
+
+- `Local Costmap`
+- `Local nvblox Layer`
+- `Filtered Odometry`
+- `Local Footprint`
+
+如果需要临时查看三维内容，可在 `src/omni_bringup/config/nvblox_3d_nav.yaml` 中把
+`publish_mesh` 改为 `true` 后重启，但这会增加可视化和建图负载。导航验证时默认
+只看局部 2D costmap / nvblox layer。
 
 后续计划：
 

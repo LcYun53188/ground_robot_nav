@@ -1,9 +1,10 @@
 """NVIDIA Isaac ROS 3D navigation bringup for the ground platform.
 
-This launch file keeps the first NVIDIA architecture deliberately single-sensor:
-OAK-D provides stereo, IMU, and depth-derived data; Isaac ROS Visual SLAM owns
-odom->base_link; nvblox owns the 3D map; Nav2 consumes nvblox through its costmap
-plugin. MID360 and wheel odometry are intentionally not part of this entry point.
+This launch file keeps the first NVIDIA architecture deliberately camera-first:
+OAK-D provides stereo, IMU, and depth-derived data; Isaac ROS Visual SLAM feeds a
+guarded odometry stream; robot_localization publishes the final odom->base_link;
+nvblox owns the 3D map; Nav2 consumes nvblox through its costmap plugin. MID360
+and wheel odometry are intentionally not part of this entry point.
 """
 
 import os
@@ -90,6 +91,15 @@ def launch_setup(context, *args, **kwargs):
     visual_slam_params = LaunchConfiguration("visual_slam_params_file").perform(context)
     visual_slam_node_params = _load_ros_parameters(visual_slam_params, "visual_slam")
     visual_slam_node_params["use_sim_time"] = LaunchConfiguration("use_sim_time")
+    launch_odom_guard = _as_bool(LaunchConfiguration("launch_odom_guard").perform(context))
+    launch_robot_localization = _as_bool(
+        LaunchConfiguration("launch_robot_localization").perform(context)
+    )
+    odom_guard_publish_tf = _as_bool(
+        LaunchConfiguration("odom_guard_publish_tf").perform(context)
+    )
+    if launch_robot_localization or (launch_odom_guard and odom_guard_publish_tf):
+        visual_slam_node_params["publish_odom_to_base_tf"] = False
     ess_engine = LaunchConfiguration("ess_engine_file").perform(context)
     oakd_imu_axis_mode = LaunchConfiguration("oakd_imu_axis_mode").perform(context)
 
@@ -236,6 +246,63 @@ def launch_setup(context, *args, **kwargs):
                 )
             )
 
+    nodes.append(
+        Node(
+            package="nav_safety",
+            executable="odom_jump_guard",
+            name="odom_jump_guard",
+            output="screen",
+            parameters=[
+                {
+                    "use_sim_time": LaunchConfiguration("use_sim_time"),
+                    "input_topic": LaunchConfiguration("odom_guard_input_topic"),
+                    "output_topic": LaunchConfiguration("odom_guard_output_topic"),
+                    "status_topic": LaunchConfiguration("odom_guard_status_topic"),
+                    "publish_tf": False
+                    if launch_robot_localization
+                    else LaunchConfiguration("odom_guard_publish_tf"),
+                    "odom_frame": LaunchConfiguration("odom_guard_odom_frame"),
+                    "base_frame": LaunchConfiguration("odom_guard_base_frame"),
+                    "max_step_xy_m": LaunchConfiguration("odom_guard_max_step_xy_m"),
+                    "max_step_z_m": LaunchConfiguration("odom_guard_max_step_z_m"),
+                    "max_yaw_step_deg": LaunchConfiguration(
+                        "odom_guard_max_yaw_step_deg"
+                    ),
+                    "max_speed_xy_mps": LaunchConfiguration(
+                        "odom_guard_max_speed_xy_mps"
+                    ),
+                    "max_yaw_rate_dps": LaunchConfiguration(
+                        "odom_guard_max_yaw_rate_dps"
+                    ),
+                    "publish_rejected_as_hold": LaunchConfiguration(
+                        "odom_guard_publish_rejected_as_hold"
+                    ),
+                    "max_hold_sec_before_reseed": LaunchConfiguration(
+                        "odom_guard_max_hold_sec_before_reseed"
+                    ),
+                }
+            ],
+            condition=IfCondition(LaunchConfiguration("launch_odom_guard")),
+        )
+    )
+
+    nodes.append(
+        Node(
+            package="robot_localization",
+            executable="ekf_node",
+            name="ekf_filter_node",
+            output="screen",
+            parameters=[
+                LaunchConfiguration("ekf_params_file"),
+                {"use_sim_time": LaunchConfiguration("use_sim_time")},
+            ],
+            remappings=[
+                ("odometry/filtered", LaunchConfiguration("filtered_odom_topic")),
+            ],
+            condition=IfCondition(LaunchConfiguration("launch_robot_localization")),
+        )
+    )
+
     ess_args = {
         "engine_file_path": ess_engine,
         "threshold": LaunchConfiguration("ess_threshold"),
@@ -344,6 +411,43 @@ def generate_launch_description():
             DeclareLaunchArgument("launch_nvblox", default_value="true"),
             DeclareLaunchArgument("launch_nav2", default_value="true"),
             DeclareLaunchArgument("launch_ground_bridge", default_value="true"),
+            DeclareLaunchArgument("launch_odom_guard", default_value="true"),
+            DeclareLaunchArgument("launch_robot_localization", default_value="true"),
+            DeclareLaunchArgument(
+                "odom_guard_input_topic",
+                default_value="/visual_slam/tracking/odometry",
+            ),
+            DeclareLaunchArgument(
+                "odom_guard_output_topic",
+                default_value="/visual_slam/guarded_odometry",
+            ),
+            DeclareLaunchArgument(
+                "odom_guard_status_topic",
+                default_value="/visual_slam/odom_guard/status",
+            ),
+            DeclareLaunchArgument("odom_guard_publish_tf", default_value="true"),
+            DeclareLaunchArgument("odom_guard_odom_frame", default_value="odom"),
+            DeclareLaunchArgument("odom_guard_base_frame", default_value="base_link"),
+            DeclareLaunchArgument("odom_guard_max_step_xy_m", default_value="0.20"),
+            DeclareLaunchArgument("odom_guard_max_step_z_m", default_value="0.15"),
+            DeclareLaunchArgument("odom_guard_max_yaw_step_deg", default_value="20.0"),
+            DeclareLaunchArgument("odom_guard_max_speed_xy_mps", default_value="1.2"),
+            DeclareLaunchArgument("odom_guard_max_yaw_rate_dps", default_value="120.0"),
+            DeclareLaunchArgument(
+                "odom_guard_publish_rejected_as_hold", default_value="true"
+            ),
+            DeclareLaunchArgument(
+                "odom_guard_max_hold_sec_before_reseed", default_value="2.0"
+            ),
+            DeclareLaunchArgument(
+                "filtered_odom_topic", default_value="/odometry/filtered"
+            ),
+            DeclareLaunchArgument(
+                "ekf_params_file",
+                default_value=PathJoinSubstitution(
+                    [FindPackageShare("omni_bringup"), "config", "ekf_visual_slam.yaml"]
+                ),
+            ),
             DeclareLaunchArgument("publish_oakd_static_tf", default_value="true"),
             DeclareLaunchArgument("oakd_image_frequency", default_value="25"),
             DeclareLaunchArgument("oakd_imu_axis_mode", default_value="raw"),

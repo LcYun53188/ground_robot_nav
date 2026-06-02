@@ -272,8 +272,9 @@ class OakDUnifiedNode(Node):
         imu_period = 1.0 / self.imu_frequency
         self.imu_timer = self.create_timer(imu_period, self.publish_imu)
 
-        if self.enable_pointcloud_publish:
-            # 点云定时器：低频 (20Hz -> 50ms)
+        if self.enable_depth_publish or self.enable_pointcloud_publish:
+            # 深度图和点云共用 DepthAI stereo depth 队列。即使关闭
+            # PointCloud2，也必须轮询该队列来发布 nvblox 需要的 depth image。
             pc_period = 1.0 / self.pointcloud_frequency
             self.pc_timer = self.create_timer(pc_period, self.publish_pointcloud)
 
@@ -666,6 +667,9 @@ class OakDUnifiedNode(Node):
                 self.depth_info_pub.publish(
                     self.create_camera_info_msg(header, depth_frame.shape, self.depth_intrinsics)
                 )
+
+            if not self.enable_pointcloud_publish:
+                return
 
             step = max(int(self.sampling_step), 1)
             depth_down = depth_frame[::step, ::step]

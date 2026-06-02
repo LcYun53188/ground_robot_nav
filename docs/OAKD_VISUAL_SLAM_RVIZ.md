@@ -115,6 +115,8 @@ src/omni_bringup/rviz/visual_slam_check.rviz
 - Fixed Frame: `odom`
 - TF 坐标轴
 - `/visual_slam/tracking/odometry`
+- `/visual_slam/guarded_odometry`
+- `/odometry/filtered`
 - `/visual_slam/tracking/vo_path`
 - `/oakd/left/image_raw`
 
@@ -136,6 +138,24 @@ VIO-only 配置不发布动态 `map -> odom`，所以不要用 `map` 判断 OAK-
 
 ```bash
 ./scripts/with_venv.sh ros2 topic echo --once /visual_slam/tracking/odometry
+```
+
+查看跳变保护后的视觉里程计：
+
+```bash
+./scripts/with_venv.sh ros2 topic echo --once /visual_slam/guarded_odometry
+```
+
+查看跳变保护状态：
+
+```bash
+./scripts/with_venv.sh ros2 topic echo /visual_slam/odom_guard/status
+```
+
+查看 EKF 输出：
+
+```bash
+./scripts/with_venv.sh ros2 topic echo --once /odometry/filtered
 ```
 
 确认 odometry 只有一个发布者：
@@ -216,6 +236,36 @@ camera Y ~= base -Z
 ```
 
 重置后保持 OAK-D 静止 5-10 秒，再小幅移动验证。
+
+## Odom 跳变保护
+
+RViz 验证入口默认启动 `nav_safety/odom_jump_guard` 和
+`robot_localization/ekf_node`。链路为：
+
+```text
+/visual_slam/tracking/odometry
+  -> /visual_slam/guarded_odometry
+  -> /odometry/filtered
+  -> odom -> base_link
+```
+
+默认由 EKF 发布 `odom -> base_link`；launch 会关闭 Visual SLAM 原始 TF，避免
+双发布。若要只看原始 Visual SLAM TF，可启动：
+
+RViz 验证入口默认使用 `ekf_visual_slam_3d.yaml`，关闭 `two_d_mode`，完整保留
+cuVSLAM 的 `odom -> base_link` 姿态。这样验证 roll、pitch、yaw 时不会被二维
+导航约束压平。完整导航入口 `nvidia_3d_nav.launch.py` 默认仍使用
+`ekf_visual_slam.yaml`，该配置启用二维约束，适合 Nav2 使用。
+
+```bash
+env FASTDDS_BUILTIN_TRANSPORTS=UDPv4 ROS_LOG_DIR=/tmp/ros_log \
+./scripts/with_venv.sh ros2 launch src/omni_bringup/launch/oakd_visual_slam_rviz.launch.py \
+  launch_robot_localization:=false \
+  odom_guard_publish_tf:=false
+```
+
+独立 IMU 不在 RViz 验证入口默认启用。需要验证独立 IMU 时，使用
+`ekf_visual_slam_with_independent_imu.yaml`，并先确认 IMU 静态 TF 和轴向。
 
 ## 停止命令
 

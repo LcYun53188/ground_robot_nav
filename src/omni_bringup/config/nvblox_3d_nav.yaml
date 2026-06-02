@@ -16,7 +16,10 @@ nvblox_node:
     esdf_mode: 2d
     publish_esdf_distance_slice: true
     publish_map_slice: true
-    publish_mesh: true
+    # Nav2 only consumes the 2D distance/map slice. Mesh visualization is useful
+    # for 3D inspection but expensive during live navigation, so keep it off by
+    # default for OAK-D real-time runs.
+    publish_mesh: false
 
     # Low ground robot: keep the relevant vertical band tight enough for 250 mm
     # passages, but leave room for brackets and hanging obstacles.
@@ -25,6 +28,8 @@ nvblox_node:
     max_height: 1.20
 
     maximum_sensor_message_queue_length: 10
-    back_projection_subsampling: 1
+    # Use every other depth pixel for integration. This trades fine detail for
+    # lower GPU/CPU load and smoother live costmap visualization.
+    back_projection_subsampling: 2
     depth_qos: sensor_data
     color_qos: sensor_data

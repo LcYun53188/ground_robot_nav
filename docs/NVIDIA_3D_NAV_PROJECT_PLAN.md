@@ -38,12 +38,12 @@ nvblox 地图切片
 - `nav_mapping/local_map_builder`：由 nvblox 替代
 - 自研 SE(2) DWA：由 Nav2 controller server 替代
 - Nav2 DWB controller：闭环跑通后由 MPPI controller 替代
-- `robot_localization`：第一版不作为必须项，除非后续需要融合额外位姿源
+- `robot_localization`：已作为 Visual SLAM 跳变保护后的 EKF 输出层接入；独立 IMU 仍作为预留扩展
 
 ## 2. 设计原则
 
 - 单传感器时序域优先：第一版只使用 OAK-D，不融合 MID360。
-- 无底盘里程计：定位由 Visual SLAM 输出 `odom -> base_link`。
+- 无底盘里程计：定位由 Visual SLAM 经 `odom_jump_guard` 和 `robot_localization` 输出 `odom -> base_link`。
 - 保守避障：nvblox 输出给 Nav2 costmap，低矮通道优先保证安全。
 - 主线独立：当前文档和验证流程以 `nvidia_3d_nav.launch.py` 与 `oakd_visual_slam_rviz.launch.py` 为准，旧 `omni_nav.launch.py` 不再作为文档主入口。
 - 分阶段接入 ESS：先用 OAK-D 原生 depth 跑通闭环，再启用 ESS。
@@ -142,7 +142,7 @@ nvblox 地图切片
 - 输出：
   - `/nvblox_node/static_map_slice`
   - ESDF slice
-  - mesh 可视化
+  - mesh 可视化，默认关闭，仅调试三维地图时临时启用
 - 调整低矮通道参数：
   - `voxel_size`
   - `min_height`
@@ -154,6 +154,14 @@ nvblox 地图切片
 - RViz/Foxglove 中可看到 nvblox map slice。
 - 低矮障碍能进入 costmap。
 - 空洞区域不会被误判为可靠 free space。
+
+当前状态：
+
+- 已确认 nvblox 使用 `/oakd/depth/image` 和 `/oakd/depth/camera_info` 作为输入。
+- 已修复关闭 PointCloud2 后 depth image 不发布的问题。
+- 已新增 `src/omni_bringup/rviz/nvblox_map_check.rviz` 用于查看局部 nvblox layer 和 local costmap。
+- 实测 `/nvblox_node/static_map_slice` 约 `4.5-4.8Hz`，`/local_costmap/nvblox_layer` 约 `3.8-4Hz`。
+- 当前频率适合低速室内验证，不适合高速动态避障。
 
 ### 阶段 5：Nav2 接入
 
@@ -171,6 +179,12 @@ nvblox 地图切片
 - Nav2 lifecycle 正常。
 - local/global costmap 均来自 `/nvblox_node/static_map_slice`。
 - 发送目标点后机器人能规划、避障、停止。
+
+当前状态：
+
+- local/global costmap 已通过 `nvblox::nav2::NvbloxCostmapLayer` 接入。
+- 本阶段验证默认使用 `launch_ground_bridge:=false`，只验证上层导航，不向下位机输出。
+- 初期导航速度建议限制在线速度 `0.2-0.35m/s`、角速度 `0.4-0.8rad/s`。
 
 ### 阶段 6：MPPI 控制器替换 DWB
 
@@ -307,7 +321,7 @@ OAK-D 原生深度 + Visual SLAM + nvblox + Nav2
 
 - ESS depth 替换。
 - 语义分割 mask。
-- robot_localization 融合额外定位源。
+- robot_localization 融合独立 IMU 或额外定位源。
 - MID360 进入 nvblox 多传感器融合。
 - FAST-LIO / MID360 作为定位备选。
 - VINS-Fusion 作为备选定位重新评估；必须先移除 `COLCON_IGNORE`、修复依赖、重新标定 OAK-D 内外参和时间戳。
