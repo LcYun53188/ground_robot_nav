@@ -140,6 +140,16 @@ def launch_setup(context, *args, **kwargs):
                     "image_pair_max_dt_ms": LaunchConfiguration(
                         "oakd_image_pair_max_dt_ms"
                     ),
+                    "image_output_mode": LaunchConfiguration(
+                        "oakd_image_output_mode"
+                    ),
+                    "image_qos_depth": LaunchConfiguration("oakd_image_qos_depth"),
+                    "image_publish_order": LaunchConfiguration(
+                        "oakd_image_publish_order"
+                    ),
+                    "image_inter_publish_delay_ms": LaunchConfiguration(
+                        "oakd_image_inter_publish_delay_ms"
+                    ),
                     "pointcloud_frequency": LaunchConfiguration(
                         "oakd_pointcloud_frequency"
                     ),
@@ -151,6 +161,9 @@ def launch_setup(context, *args, **kwargs):
                     ),
                     "enable_passive_stereo": "true",
                     "enable_active_stereo": "false",
+                    "stereo_quality_mode": LaunchConfiguration(
+                        "oakd_stereo_quality_mode"
+                    ),
                     "imu_topic": LaunchConfiguration("imu_topic"),
                     "left_image_topic": LaunchConfiguration("left_image_topic"),
                     "right_image_topic": LaunchConfiguration("right_image_topic"),
@@ -332,14 +345,21 @@ def generate_launch_description():
             DeclareLaunchArgument("launch_nav2", default_value="true"),
             DeclareLaunchArgument("launch_ground_bridge", default_value="true"),
             DeclareLaunchArgument("publish_oakd_static_tf", default_value="true"),
-            DeclareLaunchArgument("oakd_image_frequency", default_value="30"),
+            DeclareLaunchArgument("oakd_image_frequency", default_value="25"),
             DeclareLaunchArgument("oakd_imu_axis_mode", default_value="raw"),
             DeclareLaunchArgument("oakd_imu_to_camera_tf_source", default_value="manual"),
             DeclareLaunchArgument("oakd_imu_to_camera_socket", default_value="CAM_A"),
-            DeclareLaunchArgument("oakd_image_poll_frequency", default_value="90"),
-            DeclareLaunchArgument("oakd_image_queue_size", default_value="8"),
+            DeclareLaunchArgument("oakd_image_poll_frequency", default_value="75"),
+            DeclareLaunchArgument("oakd_image_queue_size", default_value="2"),
             DeclareLaunchArgument("oakd_image_pair_max_dt_ms", default_value="8.0"),
+            DeclareLaunchArgument("oakd_image_output_mode", default_value="rectified"),
+            DeclareLaunchArgument("oakd_image_qos_depth", default_value="4"),
+            DeclareLaunchArgument("oakd_image_publish_order", default_value="left_first"),
+            DeclareLaunchArgument(
+                "oakd_image_inter_publish_delay_ms", default_value="1.0"
+            ),
             DeclareLaunchArgument("oakd_pointcloud_frequency", default_value="15"),
+            DeclareLaunchArgument("oakd_stereo_quality_mode", default_value="auto"),
             # Visual SLAM and nvblox consume stereo images, IMU, and depth image.
             # The host-generated PointCloud2 stream is expensive and not needed
             # in this NVIDIA path, so keep it opt-in.

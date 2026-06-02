@@ -135,6 +135,19 @@ def launch_setup(context, *args, **kwargs):
         )
         == "true",
         "ir_intensity": int(LaunchConfiguration("ir_intensity").perform(context)),
+        "stereo_quality_mode": LaunchConfiguration("stereo_quality_mode").perform(
+            context
+        ),
+        "image_output_mode": LaunchConfiguration("image_output_mode").perform(context),
+        "image_qos_depth": int(
+            LaunchConfiguration("image_qos_depth").perform(context)
+        ),
+        "image_publish_order": LaunchConfiguration("image_publish_order").perform(
+            context
+        ),
+        "image_inter_publish_delay_ms": float(
+            LaunchConfiguration("image_inter_publish_delay_ms").perform(context)
+        ),
         "sampling_step": int(LaunchConfiguration("sampling_step").perform(context)),
         "min_depth": int(LaunchConfiguration("min_depth").perform(context)),
         "max_depth": int(LaunchConfiguration("max_depth").perform(context)),
@@ -348,6 +361,23 @@ def generate_launch_description():
             DeclareLaunchArgument("enable_passive_stereo", default_value="true"),
             DeclareLaunchArgument("enable_active_stereo", default_value="false"),
             DeclareLaunchArgument("ir_intensity", default_value="1600"),
+            DeclareLaunchArgument(
+                "stereo_quality_mode",
+                default_value="auto",
+                description=(
+                    "StereoDepth processing profile: auto, quality, or low_latency. "
+                    "auto uses low_latency when depth and pointcloud publishing are disabled."
+                ),
+            ),
+            DeclareLaunchArgument(
+                "image_output_mode",
+                default_value="rectified",
+                description=(
+                    "Image source for left/right image_raw: rectified uses "
+                    "StereoDepth rectified outputs; mono bypasses StereoDepth "
+                    "rectification for latency/drop diagnostics."
+                ),
+            ),
             DeclareLaunchArgument("sampling_step", default_value="2"),
             DeclareLaunchArgument("min_depth", default_value="200"),
             DeclareLaunchArgument("max_depth", default_value="5000"),
@@ -398,8 +428,11 @@ def generate_launch_description():
             DeclareLaunchArgument("stereo_baseline_m", default_value="0.075"),
             DeclareLaunchArgument("image_frequency", default_value="25"),
             DeclareLaunchArgument("image_poll_frequency", default_value="75"),
-            DeclareLaunchArgument("image_queue_size", default_value="8"),
+            DeclareLaunchArgument("image_queue_size", default_value="2"),
             DeclareLaunchArgument("image_pair_max_dt_ms", default_value="8.0"),
+            DeclareLaunchArgument("image_qos_depth", default_value="4"),
+            DeclareLaunchArgument("image_publish_order", default_value="left_first"),
+            DeclareLaunchArgument("image_inter_publish_delay_ms", default_value="1.0"),
             DeclareLaunchArgument("left_camera_x", default_value="-0.0375"),
             DeclareLaunchArgument("right_camera_x", default_value="0.0375"),
             OpaqueFunction(function=launch_setup),

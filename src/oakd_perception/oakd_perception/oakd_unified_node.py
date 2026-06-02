@@ -1,5 +1,7 @@
 """Unified OAK-D node for IMU and depth data."""
 
+import time
+
 import depthai as dai
 import numpy as np
 import rclpy
@@ -40,6 +42,7 @@ class OakDUnifiedNode(Node):
         self.declare_parameter("enable_passive_stereo", True)
         self.declare_parameter("enable_active_stereo", False)
         self.declare_parameter("ir_intensity", 1600)
+        self.declare_parameter("stereo_quality_mode", "auto")
 
         # ============ 点云过滤参数配置 ============
         self.declare_parameter("pointcloud_frequency", 20)
@@ -70,10 +73,14 @@ class OakDUnifiedNode(Node):
         self.declare_parameter("left_camera_frame_id", "oakd_left_camera_optical_frame")
         self.declare_parameter("right_camera_frame_id", "oakd_right_camera_optical_frame")
         self.declare_parameter("stereo_baseline_m", 0.075)
-        self.declare_parameter("image_frequency", 30)
-        self.declare_parameter("image_poll_frequency", 90)
-        self.declare_parameter("image_queue_size", 8)
+        self.declare_parameter("image_frequency", 25)
+        self.declare_parameter("image_poll_frequency", 75)
+        self.declare_parameter("image_queue_size", 2)
         self.declare_parameter("image_pair_max_dt_ms", 8.0)
+        self.declare_parameter("image_output_mode", "rectified")
+        self.declare_parameter("image_qos_depth", 4)
+        self.declare_parameter("image_publish_order", "left_first")
+        self.declare_parameter("image_inter_publish_delay_ms", 1.0)
 
         # 获取IMU参数
         self.imu_frequency = self.get_parameter("imu_frequency").value
@@ -88,6 +95,9 @@ class OakDUnifiedNode(Node):
         self.enable_passive_stereo = self.get_parameter("enable_passive_stereo").value
         self.enable_active_stereo = self.get_parameter("enable_active_stereo").value
         self.ir_intensity = self.get_parameter("ir_intensity").value
+        self.stereo_quality_mode = str(
+            self.get_parameter("stereo_quality_mode").value
+        ).lower()
 
         # 获取点云参数
         self.pointcloud_frequency = self.get_parameter("pointcloud_frequency").value
@@ -138,10 +148,38 @@ class OakDUnifiedNode(Node):
         self.image_pair_max_dt_ms = float(
             self.get_parameter("image_pair_max_dt_ms").value
         )
+        self.image_output_mode = str(
+            self.get_parameter("image_output_mode").value
+        ).lower()
+        self.image_qos_depth = max(1, int(self.get_parameter("image_qos_depth").value))
+        self.image_publish_order = str(
+            self.get_parameter("image_publish_order").value
+        ).lower()
+        self.image_inter_publish_delay_ms = max(
+            0.0, float(self.get_parameter("image_inter_publish_delay_ms").value)
+        )
+        if self.image_output_mode not in ("rectified", "mono"):
+            self.get_logger().warn(
+                "未知 image_output_mode=%r，回退到 rectified"
+                % self.image_output_mode
+            )
+            self.image_output_mode = "rectified"
+        if self.image_publish_order not in ("left_first", "right_first"):
+            self.get_logger().warn(
+                "未知 image_publish_order=%r，回退到 left_first"
+                % self.image_publish_order
+            )
+            self.image_publish_order = "left_first"
 
         sensor_qos = QoSProfile(
             history=QoSHistoryPolicy.KEEP_LAST,
             depth=1,
+            reliability=QoSReliabilityPolicy.BEST_EFFORT,
+            durability=QoSDurabilityPolicy.VOLATILE,
+        )
+        image_qos = QoSProfile(
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=self.image_qos_depth,
             reliability=QoSReliabilityPolicy.BEST_EFFORT,
             durability=QoSDurabilityPolicy.VOLATILE,
         )
@@ -163,16 +201,16 @@ class OakDUnifiedNode(Node):
             )
         if self.enable_image_publish:
             self.left_pub = self.create_publisher(
-                Image, self.left_image_topic, sensor_qos
+                Image, self.left_image_topic, image_qos
             )
             self.right_pub = self.create_publisher(
-                Image, self.right_image_topic, sensor_qos
+                Image, self.right_image_topic, image_qos
             )
             self.left_info_pub = self.create_publisher(
-                CameraInfo, self.left_camera_info_topic, sensor_qos
+                CameraInfo, self.left_camera_info_topic, image_qos
             )
             self.right_info_pub = self.create_publisher(
-                CameraInfo, self.right_camera_info_topic, sensor_qos
+                CameraInfo, self.right_camera_info_topic, image_qos
             )
         if self.enable_depth_publish:
             self.depth_pub = self.create_publisher(
@@ -187,6 +225,7 @@ class OakDUnifiedNode(Node):
         self.depth_queue = None
         self.left_queue = None
         self.right_queue = None
+        self.mono_diagnostic_depth_queue = None
         self.pipeline = dai.Pipeline()
         self.device_time_base = None
         self.last_image_stamp_seconds = None
@@ -219,7 +258,12 @@ class OakDUnifiedNode(Node):
             f"image_frequency={self.image_frequency}Hz, "
             f"image_poll_frequency={self.image_poll_frequency}Hz, "
             f"depth_publish={self.enable_depth_publish}, "
-            f"pointcloud_publish={self.enable_pointcloud_publish}"
+            f"pointcloud_publish={self.enable_pointcloud_publish}, "
+            f"stereo_quality_mode={self.stereo_quality_mode}, "
+            f"image_output_mode={self.image_output_mode}, "
+            f"image_qos_depth={self.image_qos_depth}, "
+            f"image_publish_order={self.image_publish_order}, "
+            f"image_inter_publish_delay_ms={self.image_inter_publish_delay_ms:.2f}"
         )
         if self.enable_active_stereo:
             self.get_logger().info(f"IR强度: {self.ir_intensity}")
@@ -342,8 +386,17 @@ class OakDUnifiedNode(Node):
             except Exception as e:
                 self.get_logger().warn(f"IR投影仪启用失败: {e}，使用被动立体")
 
-        # 选择预设模式
-        if ir_enabled or self.enable_active_stereo:
+        low_latency_stereo = self.stereo_quality_mode == "low_latency" or (
+            self.stereo_quality_mode == "auto"
+            and not self.enable_depth_publish
+            and not self.enable_pointcloud_publish
+        )
+
+        # 选择预设模式。VIO-only 启动只需要 StereoDepth 的 rectifiedLeft/
+        # rectifiedRight 输出，不消费深度质量；低延迟模式减少深度后处理开销。
+        if low_latency_stereo:
+            preset_mode = dai.node.StereoDepth.PresetMode.FAST_DENSITY
+        elif ir_enabled or self.enable_active_stereo:
             if hasattr(dai.node.StereoDepth.PresetMode, "HIGH_DENSITY"):
                 preset_mode = dai.node.StereoDepth.PresetMode.HIGH_DENSITY
             elif hasattr(dai.node.StereoDepth.PresetMode, "MEDIUM_DENSITY"):
@@ -359,8 +412,8 @@ class OakDUnifiedNode(Node):
                 preset_mode = dai.node.StereoDepth.PresetMode.HIGH_DENSITY
 
         stereo.setDefaultProfilePreset(preset_mode)
-        stereo.setLeftRightCheck(True)
-        stereo.setSubpixel(True)
+        stereo.setLeftRightCheck(not low_latency_stereo)
+        stereo.setSubpixel(not low_latency_stereo)
 
         # 硬件滤镜配置
         if hasattr(stereo.initialConfig, "get"):
@@ -371,19 +424,24 @@ class OakDUnifiedNode(Node):
         pp = getattr(config, "postProcessing", None)
         if pp is not None:
             if hasattr(pp, "medianFilter"):
-                pp.medianFilter = (
-                    dai.MedianFilter.KERNEL_7x7
-                    if self.enable_passive_stereo
-                    else dai.MedianFilter.KERNEL_5x5
-                )
+                if low_latency_stereo:
+                    pp.medianFilter = getattr(
+                        dai.MedianFilter, "MEDIAN_OFF", dai.MedianFilter.KERNEL_3x3
+                    )
+                else:
+                    pp.medianFilter = (
+                        dai.MedianFilter.KERNEL_7x7
+                        if self.enable_passive_stereo
+                        else dai.MedianFilter.KERNEL_5x5
+                    )
             spatial = getattr(pp, "spatialFilter", None)
             if spatial is not None and hasattr(spatial, "enable"):
-                spatial.enable = self.enable_passive_stereo
+                spatial.enable = self.enable_passive_stereo and not low_latency_stereo
                 if hasattr(spatial, "holeFillingRadius"):
                     spatial.holeFillingRadius = 2 if self.enable_passive_stereo else 1
             temporal = getattr(pp, "temporalFilter", None)
             if temporal is not None and hasattr(temporal, "enable"):
-                temporal.enable = True
+                temporal.enable = not low_latency_stereo
 
         if hasattr(stereo.initialConfig, "set"):
             stereo.initialConfig.set(config)
@@ -392,18 +450,40 @@ class OakDUnifiedNode(Node):
         monoRight.out.link(stereo.right)
 
         if self.enable_image_publish:
-            # Publish StereoDepth's rectified outputs instead of the raw
-            # wide-FOV mono streams.
-            self.left_queue = stereo.rectifiedLeft.createOutputQueue(
-                maxSize=max(self.image_queue_size, 1), blocking=False
-            )
-            self.right_queue = stereo.rectifiedRight.createOutputQueue(
-                maxSize=max(self.image_queue_size, 1), blocking=False
-            )
+            if self.image_output_mode == "mono":
+                # Diagnostic/low-latency mode: bypass StereoDepth rectification
+                # to check whether rectifiedLeft/Right are the source of drops.
+                self.left_queue = monoLeft.out.createOutputQueue(
+                    maxSize=max(self.image_queue_size, 1), blocking=False
+                )
+                self.right_queue = monoRight.out.createOutputQueue(
+                    maxSize=max(self.image_queue_size, 1), blocking=False
+                )
+            else:
+                # Default VIO mode: publish StereoDepth's rectified outputs.
+                self.left_queue = stereo.rectifiedLeft.createOutputQueue(
+                    maxSize=max(self.image_queue_size, 1), blocking=False
+                )
+                self.right_queue = stereo.rectifiedRight.createOutputQueue(
+                    maxSize=max(self.image_queue_size, 1), blocking=False
+                )
 
         if self.enable_depth_publish or self.enable_pointcloud_publish:
             self.depth_queue = stereo.depth.createOutputQueue(maxSize=4, blocking=False)
-        self.get_logger().info("深度管道配置完成")
+        elif self.image_output_mode == "mono":
+            # DepthAI requires at least one StereoDepth output to be connected
+            # when the node exists. Keep a tiny non-blocking queue only to make
+            # the diagnostic mono mode start; this queue is intentionally not
+            # published by ROS.
+            self.mono_diagnostic_depth_queue = stereo.depth.createOutputQueue(
+                maxSize=1, blocking=False
+            )
+        self.get_logger().info(
+            "深度管道配置完成: "
+            f"low_latency_stereo={low_latency_stereo}, "
+            f"left_right_check={not low_latency_stereo}, "
+            f"subpixel={not low_latency_stereo}"
+        )
 
     def setup_calibration(self):
         """Load camera calibration data."""
@@ -750,24 +830,32 @@ class OakDUnifiedNode(Node):
             right_msg = self.create_image_msg(
                 inRight.getCvFrame(), self.right_camera_frame_id, stamp
             )
-            self.left_pub.publish(left_msg)
-            self.right_pub.publish(right_msg)
-            self.left_info_pub.publish(
-                self.create_camera_info_msg(
-                    left_msg.header,
-                    (left_msg.height, left_msg.width),
-                    self.left_intrinsics,
-                )
-            )
             right_tx = -float(self.right_intrinsics["fx"]) * self.stereo_baseline_m
-            self.right_info_pub.publish(
-                self.create_camera_info_msg(
-                    right_msg.header,
-                    (right_msg.height, right_msg.width),
-                    self.right_intrinsics,
-                    tx=right_tx,
-                )
+            left_info_msg = self.create_camera_info_msg(
+                left_msg.header,
+                (left_msg.height, left_msg.width),
+                self.left_intrinsics,
             )
+            right_info_msg = self.create_camera_info_msg(
+                right_msg.header,
+                (right_msg.height, right_msg.width),
+                self.right_intrinsics,
+                tx=right_tx,
+            )
+            if self.image_publish_order == "right_first":
+                self.right_pub.publish(right_msg)
+                if self.image_inter_publish_delay_ms > 0.0:
+                    time.sleep(self.image_inter_publish_delay_ms / 1000.0)
+                self.left_pub.publish(left_msg)
+                self.right_info_pub.publish(right_info_msg)
+                self.left_info_pub.publish(left_info_msg)
+            else:
+                self.left_pub.publish(left_msg)
+                if self.image_inter_publish_delay_ms > 0.0:
+                    time.sleep(self.image_inter_publish_delay_ms / 1000.0)
+                self.right_pub.publish(right_msg)
+                self.left_info_pub.publish(left_info_msg)
+                self.right_info_pub.publish(right_info_msg)
             self.image_publish_count += 1
             if device_seconds is not None:
                 if self.last_image_stamp_seconds is not None:

@@ -47,10 +47,17 @@ def generate_launch_description():
             DeclareLaunchArgument("oakd_yaw", default_value="0.0"),
             DeclareLaunchArgument("oakd_pitch", default_value="1.57079632679"),
             DeclareLaunchArgument("oakd_roll", default_value="3.14159265359"),
-            DeclareLaunchArgument("oakd_image_frequency", default_value="30"),
-            DeclareLaunchArgument("oakd_image_poll_frequency", default_value="90"),
-            DeclareLaunchArgument("oakd_image_queue_size", default_value="8"),
+            DeclareLaunchArgument("oakd_image_frequency", default_value="25"),
+            DeclareLaunchArgument("oakd_image_poll_frequency", default_value="75"),
+            DeclareLaunchArgument("oakd_image_queue_size", default_value="2"),
             DeclareLaunchArgument("oakd_image_pair_max_dt_ms", default_value="8.0"),
+            DeclareLaunchArgument("oakd_image_output_mode", default_value="rectified"),
+            DeclareLaunchArgument("oakd_image_qos_depth", default_value="4"),
+            DeclareLaunchArgument("oakd_image_publish_order", default_value="left_first"),
+            DeclareLaunchArgument(
+                "oakd_image_inter_publish_delay_ms", default_value="1.0"
+            ),
+            DeclareLaunchArgument("oakd_stereo_quality_mode", default_value="low_latency"),
             DeclareLaunchArgument("oakd_imu_axis_mode", default_value="raw"),
             DeclareLaunchArgument(
                 "oakd_imu_to_camera_tf_source",
@@ -89,6 +96,19 @@ def generate_launch_description():
                     "oakd_image_queue_size": LaunchConfiguration("oakd_image_queue_size"),
                     "oakd_image_pair_max_dt_ms": LaunchConfiguration(
                         "oakd_image_pair_max_dt_ms"
+                    ),
+                    "oakd_image_output_mode": LaunchConfiguration(
+                        "oakd_image_output_mode"
+                    ),
+                    "oakd_image_qos_depth": LaunchConfiguration("oakd_image_qos_depth"),
+                    "oakd_image_publish_order": LaunchConfiguration(
+                        "oakd_image_publish_order"
+                    ),
+                    "oakd_image_inter_publish_delay_ms": LaunchConfiguration(
+                        "oakd_image_inter_publish_delay_ms"
+                    ),
+                    "oakd_stereo_quality_mode": LaunchConfiguration(
+                        "oakd_stereo_quality_mode"
                     ),
                     "oakd_x": LaunchConfiguration("oakd_x"),
                     "oakd_y": LaunchConfiguration("oakd_y"),
