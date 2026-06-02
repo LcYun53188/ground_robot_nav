@@ -1,85 +1,220 @@
-# Ground Robot Navigation
+# 地面全向轮机器人导航工作区
 
-This workspace targets a ground omni-wheel robot using OAK-D perception,
-Isaac ROS cuVSLAM, Isaac ROS Nvblox, Nav2, and a serial bridge to the base
-controller.
+本工作区面向地面全向轮机器人，不再按无人机导航栈设计。当前主线是以
+OAK-D 为第一版核心传感器，使用 Isaac ROS Visual SLAM / cuVSLAM 提供视觉
+里程计，使用 nvblox 构建 3D 障碍地图，使用 Nav2 和 `ground_serial_bridge`
+完成规划、控制与底盘串口输出。
 
-## Main Entry
+第一版约束：
 
-Build the ground stack:
+- 不依赖可靠轮速里程计。
+- 不在首版引入 OAK-D 与 MID360 的复杂跨设备时间戳对齐。
+- MID360 暂不参与主定位，后续作为局部安全障碍层接入。
+- OAK-D + Visual SLAM + nvblox + Nav2 是当前优先闭环。
+
+## 文档入口
+
+- [docs/INDEX.md](docs/INDEX.md)：文档索引。
+- [docs/INSTALLATION.md](docs/INSTALLATION.md)：虚拟环境、依赖安装与构建说明。
+- [docs/CUDA_TOOLKIT_13_2_INSTALLATION.md](docs/CUDA_TOOLKIT_13_2_INSTALLATION.md)：CUDA Toolkit 13.2 / Isaac ROS 构建环境。
+- [docs/OAKD_VISUAL_SLAM_RVIZ.md](docs/OAKD_VISUAL_SLAM_RVIZ.md)：OAK-D + Visual SLAM + RViz 硬件验证。
+- [docs/NVIDIA_3D_NAV_ARCHITECTURE.md](docs/NVIDIA_3D_NAV_ARCHITECTURE.md)：NVIDIA 3D 导航架构说明。
+- [docs/NVIDIA_3D_NAV_PROJECT_PLAN.md](docs/NVIDIA_3D_NAV_PROJECT_PLAN.md)：分阶段迁移计划。
+- [docs/ISAAC_SIM_SIMULATION.md](docs/ISAAC_SIM_SIMULATION.md)：Isaac Sim 最小仿真验证。
+
+## 环境配置
+
+项目约定：
+
+- 使用 `.venv` 虚拟环境。
+- 使用 `uv` 作为 Python 包管理器。
+- ROS 命令优先通过 `./scripts/with_venv.sh` 执行，避免系统 Python 与虚拟环境混用。
+- Isaac ROS / nvblox 构建需要可用的 NVIDIA 驱动、CUDA Toolkit、VPI 和相关 ROS 依赖。
+
+基础环境：
+
+```bash
+cd /home/nuc/Program/ground_robot_nav_ws
+
+# 如 .venv 尚未创建，按 docs/INSTALLATION.md 完整配置。
+source .venv/bin/activate
+
+# 推荐通过包装脚本运行 ROS 命令。
+./scripts/with_venv.sh ros2 topic list
+```
+
+CUDA / Isaac ROS 相关构建前，先确认：
+
+```bash
+nvidia-smi
+nvcc --version
+echo "$CUDA_HOME"
+echo "$CUDAToolkit_ROOT"
+```
+
+详细环境步骤见 [docs/INSTALLATION.md](docs/INSTALLATION.md) 和
+[docs/CUDA_TOOLKIT_13_2_INSTALLATION.md](docs/CUDA_TOOLKIT_13_2_INSTALLATION.md)。
+
+## 构建项目
+
+构建当前地面导航栈：
 
 ```bash
 ./scripts/build_ground_stack.sh
 source install/setup.bash
 ```
 
-Launch the ground navigation stack:
+调试 OAK-D / Visual SLAM 相关改动时，可以只构建相关包：
 
 ```bash
-ros2 launch omni_bringup ground_nav.launch.py
+./scripts/with_venv.sh colcon build --symlink-install \
+  --packages-select oakd_perception omni_bringup
+source install/setup.bash
 ```
 
-## Architecture
+如果构建 Isaac ROS / nvblox 相关包失败，优先查看：
 
-The intended runtime chain is:
+- [docs/CUDA_TOOLKIT_13_2_INSTALLATION.md](docs/CUDA_TOOLKIT_13_2_INSTALLATION.md)
+- [docs/NVIDIA_3D_NAV_ARCHITECTURE.md](docs/NVIDIA_3D_NAV_ARCHITECTURE.md)
+
+## 验证硬件
+
+### OAK-D Visual SLAM 单独验证
+
+在调试完整 nvblox / Nav2 闭环前，先用 OAK-D VIO 验证入口确认双目、
+IMU、TF 和 Visual SLAM 是否正常：
+
+```bash
+env FASTDDS_BUILTIN_TRANSPORTS=UDPv4 ROS_LOG_DIR=/tmp/ros_log \
+./scripts/with_venv.sh ros2 launch src/omni_bringup/launch/oakd_visual_slam_rviz.launch.py
+```
+
+该入口只启动：
+
+- `oakd_unified_node`
+- Isaac ROS Visual SLAM
+- OAK-D 静态 TF
+- RViz
+
+该入口不启动：
+
+- nvblox
+- Nav2
+- ESS
+- `ground_serial_bridge`
+- OAK-D depth image
+- OAK-D PointCloud2
+
+VIO-only 入口默认使用 `oakd_stereo_quality_mode:=low_latency`。该模式仍通过
+OAK-D `StereoDepth` 输出左右矫正图，但关闭 Visual SLAM 不使用的深度质量
+相关计算，以降低双目图像链路延迟。
+
+OAK-D 图像默认目标帧率为 `25Hz`，图像轮询频率为 `75Hz`，host 端左右目队列默认
+为 `2`，图像 ROS publisher QoS depth 默认为 `4`，左右大图像之间默认错开 `1ms`
+发布。队列较小用于减少旧帧堆积，QoS depth 和 1ms 间隔用于避免连续发布左右大图时
+第二个 best-effort 图像 topic 明显掉样本。
+
+如果出现 Visual SLAM 帧间隔警告或 OAK-D 图像间隔抖动，可先只放宽左右目配对阈值复测：
+
+```bash
+env FASTDDS_BUILTIN_TRANSPORTS=UDPv4 ROS_LOG_DIR=/tmp/ros_log \
+./scripts/with_venv.sh ros2 launch src/omni_bringup/launch/oakd_visual_slam_rviz.launch.py \
+  oakd_image_pair_max_dt_ms:=12.0
+```
+
+常用检查命令：
+
+```bash
+timeout 8s ./scripts/with_venv.sh ros2 topic hz /oakd/left/image_raw
+timeout 8s ./scripts/with_venv.sh ros2 topic hz /oakd/right/image_raw
+timeout 8s ./scripts/with_venv.sh ros2 topic hz /oakd/imu/raw
+timeout 8s ./scripts/with_venv.sh ros2 topic hz /visual_slam/tracking/odometry
+./scripts/with_venv.sh ros2 topic echo --once /visual_slam/status
+```
+
+注意：`ros2 topic hz` 对当前 best-effort 图像 topic 只能做粗略参考。精确验证左右目
+频率时，应使用 best-effort QoS 探针。2026-06-02 在 RViz 开启、默认参数下，20 秒
+采样结果为左右目和 `/visual_slam/tracking/odometry` 均 `25.000Hz`。
+
+完整流程见 [docs/OAKD_VISUAL_SLAM_RVIZ.md](docs/OAKD_VISUAL_SLAM_RVIZ.md)。
+
+### USB 与设备状态
+
+如果 OAK-D 左右目频率达不到目标值，或最大间隔反复出现约 `0.078s`，优先确认
+USB 3.x 链路、线材和供电：
+
+```bash
+lsusb -t
+```
+
+如果出现 `X_LINK_DEVICE_ALREADY_IN_USE`，先停止旧的 OAK-D / launch 进程后再重试。
+
+## 运行导航栈
+
+完整 NVIDIA 3D 导航入口：
+
+```bash
+env FASTDDS_BUILTIN_TRANSPORTS=UDPv4 ROS_LOG_DIR=/tmp/ros_log \
+./scripts/with_venv.sh ros2 launch omni_bringup nvidia_3d_nav.launch.py
+```
+
+当前主链路：
 
 ```text
-OAK-D stereo/depth + IMU
-        ↓
-isaac_ros_visual_slam + robot_localization
-        ↓
-odom -> base_link
-        ↓
-isaac_ros_nvblox
-        ↓
-nvblox_nav2 costmap layer
-        ↓
-Nav2 controller
-        ↓
-/cmd_vel
-        ↓
-ground_serial_bridge
+OAK-D stereo + IMU
+    -> Isaac ROS Visual SLAM / cuVSLAM
+    -> odom -> base_link
+OAK-D depth
+    -> nvblox 3D map
+    -> Nav2 costmap
+    -> Nav2 controller
+    -> /cmd_vel
+    -> ground_serial_bridge
 ```
 
-Current local packages provide:
+常用运行参数：
 
-- `omni_bringup`: launch and configuration for the ground stack.
-- `oakd_perception`: OAK-D IMU, stereo images, depth image, camera info, and point cloud.
-- `ground_serial_bridge`: `/cmd_vel` or `/nav/cmd_vel` to the base MCU.
-- `robot_localization`: filtered odometry and standard TF output.
-- `nav_mapping`, `nav_planning`, `nav_safety`: shared utilities kept while Nav2/nvblox migration is completed.
+```bash
+# 只验证 OAK-D + Visual SLAM，不启动 nvblox/Nav2/底盘桥。
+./scripts/with_venv.sh ros2 launch src/omni_bringup/launch/oakd_visual_slam_rviz.launch.py
 
-External Isaac ROS/Nav2 runtime dependencies are expected to provide:
+# 完整 NVIDIA 3D 导航入口。
+./scripts/with_venv.sh ros2 launch omni_bringup nvidia_3d_nav.launch.py
 
-- `isaac_ros_visual_slam`
-- `isaac_ros_nvblox`
-- `nvblox_nav2`
-- `nav2_bringup`
-- `nav2_mppi_controller` or another Nav2 controller
+# 如需调整 OAK-D 安装外参。
+./scripts/with_venv.sh ros2 launch omni_bringup nvidia_3d_nav.launch.py \
+  oakd_x:=0.12 oakd_y:=0.0 oakd_z:=0.28
+```
 
-## Required Runtime Topics
+## 关键 Topic
 
-OAK-D perception:
+OAK-D 输入：
 
+- `/oakd/left/image_raw`
+- `/oakd/right/image_raw`
+- `/oakd/left/camera_info`
+- `/oakd/right/camera_info`
 - `/oakd/imu/raw`
 - `/oakd/depth/image`
 - `/oakd/depth/camera_info`
-- `/oakd/left/image_raw`
-- `/oakd/right/image_raw`
-- `/oakd/points_filtered`
+- `/oakd/points` 和 `/oakd/points_filtered`：可选，完整 NVIDIA 路径默认不依赖 host 端点云。
 
-Localization output:
+Visual SLAM / TF：
 
-- `/odometry/filtered`
+- `/visual_slam/tracking/odometry`
+- `/visual_slam/tracking/vo_path`
+- `/visual_slam/status`
 - `odom -> base_link`
 
-Control:
+控制与安全：
 
 - `/cmd_vel`
 - `/nav/emergency`
 - `/nav/safety_status`
 
-## Frame Contract
+## 坐标系约定
+
+当前主 TF 关系：
 
 ```text
 odom
@@ -87,15 +222,89 @@ odom
     ├── base_footprint
     └── oakd_imu_link
         └── oakd_camera_optical_frame
+            ├── oakd_left_camera_optical_frame
+            └── oakd_right_camera_optical_frame
 ```
 
-Tune the OAK-D mounting transform at launch:
+默认 OAK-D 安装假设：
+
+- `base_link`：X 前、Y 左、Z 上。
+- `oakd_camera_optical_frame`：Z 前、X 右、Y 下。
+- `base_link -> oakd_imu_link` 表示整台 OAK-D 相对底盘的安装外参。
+- `oakd_imu_link -> oakd_camera_optical_frame` 表示 OAK-D 内部 IMU/机身到相机光学坐标系的固定关系。
+
+## 当前进度
+
+已完成或正在使用：
+
+- 地面机器人项目范围已明确，不再按无人机主线推进。
+- `oakd_perception` 已提供 OAK-D IMU、左右目矫正图、CameraInfo、深度图和可选点云。
+- OAK-D VIO-only 验证入口已建立：`oakd_visual_slam_rviz.launch.py`。
+- VIO-only 入口已加入低延迟双目模式，减少不必要的深度质量计算。
+- `nvidia_3d_nav.launch.py` 已作为 OAK-D + Visual SLAM + nvblox + Nav2 的主入口。
+- Nav2 配置已转向 MPPI 控制器方向。
+- Isaac Sim 最小验证路径已整理在 `simulation/` 和 [docs/ISAAC_SIM_SIMULATION.md](docs/ISAAC_SIM_SIMULATION.md)。
+- VINS-Fusion 旧源码仍保留在 `src/VINS-Fusion-ros2`，但带 `COLCON_IGNORE`，默认不构建、不作为当前可用定位链路。
+
+当前重点：
+
+- 稳定 OAK-D 双目帧率和 Visual SLAM 输出频率。
+- 验证 `odom -> base_link` 连续性和坐标轴方向。
+- 用 OAK-D depth + Visual SLAM TF 驱动 nvblox。
+- 在 nvblox costmap 上跑通 Nav2 闭环。
+
+后续计划：
+
+- 闭环稳定后继续调 MPPI 参数。
+- 再接入 ESS 改善深度质量。
+- 最后将 MID360 作为局部安全障碍层接入，不作为第一版主定位输入。
+
+## 代码包概览
+
+- `src/omni_bringup`：地面导航 launch、Nav2/nvblox/Visual SLAM 配置。
+- `src/oakd_perception`：OAK-D 统一驱动、IMU、双目、深度和点云接口。
+- `src/ground_serial_bridge`：`/cmd_vel` 到底盘 MCU 的串口桥。
+- `src/isaac_ros_visual_slam`：Isaac ROS Visual SLAM / cuVSLAM 上游代码。
+- `src/isaac_ros_nvblox`：nvblox 3D 建图和 Nav2 costmap 插件相关代码。
+- `src/navigation2`：Nav2 上游代码。
+- `src/VINS-Fusion-ros2`：旧 VINS 残留源码，当前由 `isaac_ros_visual_slam` 替代；默认 `COLCON_IGNORE`，不要作为当前导航入口使用。
+- `patches/`：对 vendor / upstream 代码的本地补丁。
+- `simulation/`：Isaac Sim 最小仿真验证入口。
+
+## 常见问题
+
+### OAK-D 图像频率低于 25Hz
+
+当前默认目标帧率是 `25Hz`。如果左右目长期低于该值，先确认 RViz 是否影响不大，
+并确认没有覆盖 `oakd_image_qos_depth:=4` 和
+`oakd_image_inter_publish_delay_ms:=1.0`。再检查 USB 3.x、线材和供电。若仍不稳定，
+可以临时降低 `oakd_image_frequency` 做稳定性验证。
+
+### Visual SLAM 输出频率明显低于图像频率
+
+先看 `/visual_slam/status`，再检查左右目同步、画面纹理、光照和 TF。若图像最大
+间隔反复到 `0.078s`，优先解决 OAK-D 图像链路抖动。
+
+### VINS 链路是否还能使用
+
+当前不建议使用。`src/VINS-Fusion-ros2` 和 `src/imu_fusion` 仍在仓库中，但都带
+`COLCON_IGNORE`，默认不会构建。旧 `scripts/run_nav_stack.sh` 仍残留 `vio` /
+`enable_vins` 逻辑，但它走的是旧 `uav_bringup nav_stack.launch.py` 入口，不是当前
+地面 NVIDIA 3D 主线。若要恢复 VINS，需要单独移除 `COLCON_IGNORE`、修复构建依赖、
+重新校准 OAK-D 内参/外参和时间戳，并编写新的地面专用 launch。
+
+### RViz 中姿态方向看起来反了
+
+先确认观察的是 `base_link` 还是 `oakd_camera_optical_frame`。相机光学坐标系与
+机器人本体坐标系定义不同，详细说明见
+[docs/OAKD_VISUAL_SLAM_RVIZ.md](docs/OAKD_VISUAL_SLAM_RVIZ.md)。
+
+### OAK-D 被占用
+
+停止旧进程：
 
 ```bash
-ros2 launch omni_bringup ground_nav.launch.py oakd_x:=0.12 oakd_z:=0.28
+pkill -f "ros2 launch.*oakd_visual_slam_rviz"
+pkill -f "ros2 launch.*nvidia_3d_nav"
+pkill -f "oakd_unified|visual_slam|static_transform_publisher"
 ```
-
-## Ground-Only Scope
-
-The active project scope is ground navigation, cuVSLAM localization, nvblox
-mapping, Nav2 planning, and the ground serial bridge.

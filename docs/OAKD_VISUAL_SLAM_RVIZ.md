@@ -45,6 +45,26 @@ env FASTDDS_BUILTIN_TRANSPORTS=UDPv4 ROS_LOG_DIR=/tmp/ros_log \
 - OAK-D depth image
 - OAK-D PointCloud2
 
+VIO-only 入口默认使用 `oakd_stereo_quality_mode:=low_latency`。该模式仍通过
+OAK-D `StereoDepth` 输出左右矫正图，但会关闭深度质量相关的 subpixel、
+left-right check 和深度后处理，避免在不发布 depth/pointcloud 时把算力消耗在
+Visual SLAM 不使用的深度质量上。
+
+默认图像参数：
+
+```text
+oakd_image_frequency = 25 Hz
+oakd_image_poll_frequency = 75 Hz
+oakd_image_queue_size = 2
+oakd_image_qos_depth = 4
+oakd_image_inter_publish_delay_ms = 1.0
+```
+
+`oakd_image_queue_size` 默认较小，目的是减少旧帧堆积，让 Visual SLAM 更快拿到
+最新左右目图像。`oakd_image_qos_depth` 和 `oakd_image_inter_publish_delay_ms`
+用于稳定 ROS/DDS 侧连续发布的左右大图像：如果左右图像背靠背发布，第二个图像
+topic 在 best-effort 链路上更容易丢样本；默认 1ms 间隔用于把两张大图像错开。
+
 ## 默认坐标关系
 
 默认假设 OAK-D 向前、水平放置，且机器人中心暂时等于 OAK-D 中心：
@@ -129,6 +149,42 @@ VIO-only 配置不发布动态 `map -> odom`，所以不要用 `map` 判断 OAK-
 ```bash
 timeout 5s ./scripts/with_venv.sh ros2 topic hz /oakd/left/image_raw
 ```
+
+注意：当前 ROS 2 Jazzy 的 `ros2 topic hz` 不能为图像 topic 指定
+`best_effort` QoS，默认可靠订阅可能与 OAK-D 图像发布 QoS 不兼容。图像频率
+精确排查时应使用 best-effort 订阅脚本或自定义探针；`ros2 topic hz` 的结果只
+适合作为粗略参考。
+
+如果仍出现 `Delta between current and previous frame` 或 OAK-D 图像最大间隔
+接近 `0.078s`，先用较宽左右目配对阈值复测：
+
+```bash
+env FASTDDS_BUILTIN_TRANSPORTS=UDPv4 ROS_LOG_DIR=/tmp/ros_log \
+./scripts/with_venv.sh ros2 launch src/omni_bringup/launch/oakd_visual_slam_rviz.launch.py \
+  oakd_image_pair_max_dt_ms:=12.0
+```
+
+然后分别检查左右目、IMU 和 VIO 频率：
+
+```bash
+timeout 8s ./scripts/with_venv.sh ros2 topic hz /oakd/left/image_raw
+timeout 8s ./scripts/with_venv.sh ros2 topic hz /oakd/right/image_raw
+timeout 8s ./scripts/with_venv.sh ros2 topic hz /oakd/imu/raw
+timeout 8s ./scripts/with_venv.sh ros2 topic hz /visual_slam/tracking/odometry
+./scripts/with_venv.sh ros2 topic echo --once /visual_slam/status
+```
+
+2026-06-02 实测优化后，在 RViz 开启、默认参数下，best-effort 探针 20 秒采样：
+
+```text
+/oakd/left/image_raw:  25.000 Hz, max interval 0.040s
+/oakd/right/image_raw: 25.000 Hz, max interval 0.040s
+/visual_slam/tracking/odometry: 25.000 Hz, max interval 0.040s
+/visual_slam/status: SUCCESS
+```
+
+如果关闭 `oakd_image_inter_publish_delay_ms` 或把发布顺序改为单侧优先，第二个
+发布的大图像 topic 可能下降到约 17-21Hz；因此默认保留 1ms 间隔。
 
 检查 VIO 输出频率：
 

@@ -1,11 +1,12 @@
-# Isaac Sim Simulation
+# Isaac Sim 最小仿真验证
 
-This workflow runs Isaac Sim as the simulated hardware side and reuses the
-existing NVIDIA 3D navigation stack on the ROS2 side.
+本文档说明如何用 Isaac Sim 作为仿真硬件侧，复用当前 ROS 2 侧的 NVIDIA 3D 导航栈。
+该流程用于验证 Nav2 / nvblox 闭环、topic、TF 和 RViz 可视化，不用于验证真实
+OAK-D cuVSLAM 跟踪质量。
 
-## Architecture
+## 架构
 
-Isaac Sim publishes:
+Isaac Sim 发布：
 
 - `/clock`
 - `/tf`
@@ -17,57 +18,60 @@ Isaac Sim publishes:
 - `/oakd/depth/image`
 - `/oakd/depth/camera_info`
 
-Isaac Sim subscribes:
+Isaac Sim 订阅：
 
 - `/cmd_vel`
 
-By default, `simulation/scripts/run_isaac_sim_nav.sh` starts a small external
-ROS2 bridge process under the workspace Python. This avoids mixing Isaac Sim's
-Python 3.11 runtime with ROS Jazzy's Python 3.12 `rclpy` extension.
+仿真脚本默认通过 `simulation/scripts/run_isaac_sim_nav.sh` 启动 Isaac Sim 侧场景。
+该脚本会在工作区 Python 环境下启动一个轻量 ROS 2 bridge 进程，以避免 Isaac Sim
+Python 3.11 与 ROS Jazzy Python 3.12 的 `rclpy` 扩展混用。
 
-ROS2 runs `omni_bringup/isaac_sim_nav.launch.py`, which wraps
-`nvidia_3d_nav.launch.py` with:
+ROS 2 侧使用 `omni_bringup/isaac_sim_nav.launch.py`，它会包装
+`nvidia_3d_nav.launch.py` 并设置：
 
 - `use_sim_time:=true`
 - `launch_oakd:=false`
 - `launch_visual_slam:=false`
 - `launch_ground_bridge:=false`
-- Isaac Sim topic names for OAK-D depth/image inputs
+- OAK-D image/depth 输入 remap 到 Isaac Sim 发布的仿真 topic
 
-The simulation odometry intentionally uses Isaac Sim ground truth on
-`/visual_slam/tracking/odometry`. This validates the Nav2/nvblox closed loop; it
-does not validate real cuVSLAM tracking quality.
+仿真中的 `/visual_slam/tracking/odometry` 来自 Isaac Sim ground truth。这样可以隔离
+真实 OAK-D VIO 质量问题，专注验证 nvblox、Nav2 和控制闭环。
 
-## Configure Isaac Sim
+## 配置 Isaac Sim
 
-Edit `simulation/config/isaac_sim_nav.yaml`.
+编辑：
 
-Set one of:
+```text
+simulation/config/isaac_sim_nav.yaml
+```
+
+设置 Isaac Sim Python：
 
 ```yaml
 isaac_sim:
   python_executable: "/absolute/path/to/isaacsim/python.sh"
 ```
 
-or export it before launch:
+也可以在启动前设置环境变量：
 
 ```bash
 export ISAAC_SIM_PYTHON=/absolute/path/to/isaacsim/python.sh
 ```
 
-Keep the same ROS domain for both terminals:
+两个终端必须使用同一个 ROS domain：
 
 ```yaml
 ros:
   domain_id: 0
 ```
 
-The runner exports this value as `ROS_DOMAIN_ID` for Isaac Sim. Use the same
-value in the ROS2 terminal if you override it manually.
+脚本会把该值导出为 `ROS_DOMAIN_ID`。如果你在 ROS 2 终端手动设置
+`ROS_DOMAIN_ID`，必须保持一致。
 
-## STL and USD Assets
+## 场景和模型资源
 
-`simulation/config/isaac_sim_nav.yaml` reserves these paths:
+`simulation/config/isaac_sim_nav.yaml` 预留了这些资源路径：
 
 ```yaml
 scene:
@@ -76,50 +80,48 @@ scene:
   world_usd_path: ""
 ```
 
-Leave them empty to use the built-in primitive scene. Put local assets under
-`simulation/assets/` when practical, but avoid committing large mesh files.
+保持为空时，脚本使用内置轻量 primitive 场景，适合最小烟雾测试。需要使用本地资源时，
+优先放到 `simulation/assets/`，但不要提交大型 mesh / USD 文件。
 
-For the first implementation, USD references are loaded directly. STL paths are
-accepted as reserved configuration and reported in the log if the current Isaac
-Sim build cannot import them directly; convert STL to USD in Isaac Sim for a
-stable workflow.
+当前流程优先直接加载 USD。STL 路径作为预留配置保留；如果当前 Isaac Sim 版本不能直接
+导入 STL，请先在 Isaac Sim 内转换为 USD。
 
-## Start Simulation
+## 启动流程
 
-Terminal 1, start Isaac Sim:
+终端 1，启动 Isaac Sim 仿真侧：
 
 ```bash
 cd /home/nuc/Program/ground_robot_nav_ws
 ./simulation/scripts/run_isaac_sim_nav.sh
 ```
 
-This also starts `simulation/scripts/ros_nav_bridge.py` unless
-`ros.start_external_ros_bridge` is set to `false` in
-`simulation/config/isaac_sim_nav.yaml`.
+除非在 `simulation/config/isaac_sim_nav.yaml` 中设置
+`ros.start_external_ros_bridge: false`，该命令也会启动
+`simulation/scripts/ros_nav_bridge.py`。
 
-Terminal 2, start ROS2 navigation:
+终端 2，启动 ROS 2 导航侧：
 
 ```bash
 cd /home/nuc/Program/ground_robot_nav_ws
 ./scripts/with_venv.sh ros2 launch omni_bringup isaac_sim_nav.launch.py
 ```
 
-Optional RViz:
+可选启动 RViz：
 
 ```bash
 cd /home/nuc/Program/ground_robot_nav_ws
 RVIZ_FIXED_FRAME=odom ./scripts/run_rviz_nav.sh
 ```
 
-## Acceptance Checks
+## 验收检查
 
-Check topics:
+检查 topic：
 
 ```bash
 ./scripts/with_venv.sh ros2 topic list -t
 ```
 
-Expected topics include:
+期望至少能看到：
 
 - `/clock`
 - `/visual_slam/tracking/odometry`
@@ -127,57 +129,59 @@ Expected topics include:
 - `/oakd/depth/camera_info`
 - `/cmd_vel`
 
-Check TF:
+检查 TF：
 
 ```bash
-./scripts/with_venv.sh ros2 run tf2_ros tf2_echo odom base_link
+timeout 5s ./scripts/with_venv.sh ros2 run tf2_ros tf2_echo odom base_link
 ```
 
-Check depth frequency:
+检查 depth 频率：
 
 ```bash
-./scripts/with_venv.sh ros2 topic hz /oakd/depth/image
+timeout 8s ./scripts/with_venv.sh ros2 topic hz /oakd/depth/image
 ```
 
-Check Nav2:
+检查 Nav2：
 
 ```bash
 ./scripts/with_venv.sh ros2 lifecycle nodes
-./scripts/with_venv.sh ros2 topic echo /cmd_vel
+timeout 8s ./scripts/with_venv.sh ros2 topic hz /cmd_vel
 ```
 
-In RViz, set `Fixed Frame` to `odom`, send a Nav2 goal, and verify:
+RViz 中使用 `Fixed Frame = odom`，发送 Nav2 goal 后确认：
 
-- Nav2 becomes active.
-- `/cmd_vel` is published.
-- Isaac Sim robot moves.
-- `/nvblox_node/static_map_slice` appears and Nav2 costmaps update.
+- Nav2 lifecycle 节点处于 active。
+- `/cmd_vel` 有输出。
+- Isaac Sim 中机器人运动。
+- `/nvblox_node/static_map_slice` 出现。
+- Nav2 costmap 随仿真 depth 更新。
 
-## Troubleshooting
+## 常见问题
 
-No Isaac Sim topics appear:
+### 看不到 Isaac Sim topic
 
-- Confirm Isaac Sim ROS2 Bridge is enabled in your Isaac Sim installation.
-- Confirm both terminals use the same `ROS_DOMAIN_ID`.
-- Confirm `RMW_IMPLEMENTATION` is compatible with the Isaac Sim ROS2 Bridge.
+- 确认 Isaac Sim ROS 2 Bridge 已启用。
+- 确认两个终端使用同一个 `ROS_DOMAIN_ID`。
+- 确认 `RMW_IMPLEMENTATION` 与 Isaac Sim ROS 2 Bridge 兼容。
 
-`/clock` is missing or not advancing:
+### `/clock` 不发布或不前进
 
-- Start Isaac Sim first.
-- Keep all ROS2 navigation nodes on `use_sim_time:=true`.
+- 先启动 Isaac Sim，再启动 ROS 2 导航侧。
+- 确认 ROS 2 导航节点使用 `use_sim_time:=true`。
 
-TF from `odom` to `base_link` is missing:
+### 缺少 `odom -> base_link`
 
-- Confirm `simulation/scripts/ground_nav_scene.py` is running.
-- Confirm `/visual_slam/tracking/odometry` is being published.
+- 确认 `simulation/scripts/ground_nav_scene.py` 正在运行。
+- 确认 `/visual_slam/tracking/odometry` 正在发布。
 
-Nav2 does not accept goals:
+### Nav2 不接受 goal
 
-- Use `odom` as RViz Fixed Frame.
-- Confirm Nav2 lifecycle nodes are active.
-- Confirm nvblox publishes `/nvblox_node/static_map_slice`.
+- RViz 使用 `Fixed Frame = odom`。
+- 确认 Nav2 lifecycle 节点已 active。
+- 确认 nvblox 发布 `/nvblox_node/static_map_slice`。
 
-Depth is present but nvblox is empty:
+### depth 有数据但 nvblox 为空
 
-- Confirm `/oakd/depth/camera_info` frame matches the depth image frame.
-- Confirm `nvblox_isaac_sim.yaml` has `use_sim_time: true`.
+- 确认 `/oakd/depth/camera_info` 的 frame 与 depth image frame 匹配。
+- 确认 `src/omni_bringup/config/nvblox_isaac_sim.yaml` 使用仿真时间。
+- 确认 `odom -> base_link` 和相机 TF 连续可用。

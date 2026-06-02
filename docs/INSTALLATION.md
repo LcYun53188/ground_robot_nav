@@ -155,24 +155,33 @@ VS Code 新开终端时会自动使用 `.venv` 中的 Python。如不自动激�
 如需构建 NVIDIA Isaac ROS / nvblox 相关包，先按
 [CUDA Toolkit 13.2 安装指南](./CUDA_TOOLKIT_13_2_INSTALLATION.md) 安装 `nvcc`。
 
-### 6.1 使用 colcon 构建
+### 6.1 构建当前地面栈
 
-在虚拟环境中使用 `colcon` 构建包：
+优先使用仓库脚本构建当前地面导航栈：
 
 ```bash
-./scripts/with_venv.sh colcon build --packages-select oakd_perception imu_fusion
+./scripts/build_ground_stack.sh
+source install/setup.bash
+```
+
+调试 OAK-D / Visual SLAM 入口时，可只构建相关包：
+
+```bash
+./scripts/with_venv.sh colcon build --symlink-install \
+  --packages-select oakd_perception omni_bringup
+source install/setup.bash
 ```
 
 ### 6.2 构建选项
 
-- `--packages-select oakd_perception imu_fusion` — 仅构建指定包
+- `--packages-select oakd_perception omni_bringup` — 仅构建 OAK-D 和 bringup 相关包
 - `--parallel <N>` — 并行构建（加速）
 - `--symlink-install` — 符号链接安装（开发模式，加速重建）
 
-完整示例：
+完整 NVIDIA 3D 导航依赖构建见：
 
 ```bash
-./scripts/with_venv.sh colcon build --packages-select oakd_perception imu_fusion --parallel 4 --symlink-install
+./scripts/build_nvidia_3d_nav_deps.sh
 ```
 
 ### 6.3 构建输出
@@ -225,9 +234,9 @@ export LANG=C.UTF-8
 ## 8. 参考
 
 - [uv 官方文档](https://docs.astral.sh/uv/)
-- [ROS 2 安装指南](https://docs.ros.org/en/humble/Installation.html)
+- [ROS 2 安装指南](https://docs.ros.org/en/jazzy/Installation.html)
 - [colcon 用户手册](https://colcon.readthedocs.io/)
 
 ---
 
-如有问题或疑问，请查阅 [README.md](../README.md) 或 [CONTRIBUTING.md](./CONTRIBUTING.md)。
+如有问题或疑问，请先查阅 [项目 README](../README.md) 和 [文档索引](./INDEX.md)。

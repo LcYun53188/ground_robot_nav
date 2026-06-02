@@ -1,4 +1,4 @@
-# NVIDIA 3D Navigation Project Plan
+# NVIDIA 3D 导航项目计划
 
 目标：将当前地面全向轮导航框架迁移到以 NVIDIA Isaac ROS 为核心的 3D 感知导航架构。第一阶段不引入 MID360，不使用底盘里程计，不做跨设备时间戳对齐。
 
@@ -7,15 +7,15 @@
 第一版核心链路：
 
 ```text
-OAK-D stereo + IMU
-    -> Isaac ROS Visual SLAM
+OAK-D 双目 + IMU
+    -> Isaac ROS Visual SLAM / cuVSLAM
     -> odom -> base_link
 
-OAK-D depth
+OAK-D 深度图
     -> nvblox_ros
     -> TSDF / ESDF / map slice
 
-nvblox map slice
+nvblox 地图切片
     -> nvblox_nav2 costmap layer
     -> Nav2 planner/controller
     -> /cmd_vel
@@ -33,7 +33,7 @@ nvblox map slice
 
 替换或降级：
 
-- `VINS-Fusion-ros2`：由 `isaac_ros_visual_slam` 替代
+- `VINS-Fusion-ros2`：由 `isaac_ros_visual_slam` 替代；源码可保留但默认 `COLCON_IGNORE`，不作为当前可用定位链路
 - `FAST_LIO_ROS2`：第一版不进入核心链路
 - `nav_mapping/local_map_builder`：由 nvblox 替代
 - 自研 SE(2) DWA：由 Nav2 controller server 替代
@@ -45,12 +45,12 @@ nvblox map slice
 - 单传感器时序域优先：第一版只使用 OAK-D，不融合 MID360。
 - 无底盘里程计：定位由 Visual SLAM 输出 `odom -> base_link`。
 - 保守避障：nvblox 输出给 Nav2 costmap，低矮通道优先保证安全。
-- 模块可回退：保留旧 `omni_nav.launch.py` 和 `ground_nav.launch.py`，新架构使用独立 launch。
+- 主线独立：当前文档和验证流程以 `nvidia_3d_nav.launch.py` 与 `oakd_visual_slam_rviz.launch.py` 为准，旧 `omni_nav.launch.py` 不再作为文档主入口。
 - 分阶段接入 ESS：先用 OAK-D 原生 depth 跑通闭环，再启用 ESS。
 
 ## 3. 阶段计划
 
-### Phase 0: 基线冻结
+### 阶段 0：基线冻结
 
 目标：明确当前系统可运行基线，避免迁移时失去回退点。
 
@@ -58,14 +58,14 @@ nvblox map slice
 
 - 记录当前可运行 launch 命令。
 - 记录当前 topic、TF、Nav2 行为。
-- 保留旧架构入口，不删除现有包。
+- 保留旧源码以便追溯，但当前文档入口只维护 NVIDIA 3D 主线。
 
 验收：
 
-- 旧架构仍可启动。
-- 新增 NVIDIA 架构文件不影响旧架构编译。
+- 新增 NVIDIA 架构文件不影响当前地面栈构建。
+- 被 `COLCON_IGNORE` 标记的旧包不会进入默认构建。
 
-### Phase 1: NVIDIA 3D 架构骨架
+### 阶段 1：NVIDIA 3D 架构骨架
 
 目标：建立独立 bringup 入口和配置文件。
 
@@ -80,9 +80,9 @@ nvblox map slice
 
 - `omni_bringup` 可编译。
 - launch 文件 Python 语法检查通过。
-- 新架构入口不会改动旧架构入口。
+- 新架构入口独立于旧 VINS / UAV 入口。
 
-### Phase 2: OAK-D 数据完整性
+### 阶段 2：OAK-D 数据完整性
 
 目标：确认 OAK-D 能提供 Visual SLAM 和 nvblox 所需输入。
 
@@ -107,7 +107,7 @@ nvblox map slice
 - 图像、IMU、depth 的 frame_id 正确。
 - TF 树无断链。
 
-### Phase 3: Isaac ROS Visual SLAM
+### 阶段 3：Isaac ROS Visual SLAM
 
 目标：无底盘里程计条件下，由 cuVSLAM 提供定位。
 
@@ -129,7 +129,7 @@ nvblox map slice
 - 原地旋转和短距离往返不明显发散。
 - Nav2 能读取 `/visual_slam/tracking/odometry`。
 
-### Phase 4: nvblox 3D 建图
+### 阶段 4：nvblox 3D 建图
 
 目标：用 OAK-D depth 和 Visual SLAM TF 建立 3D 障碍地图。
 
@@ -155,7 +155,7 @@ nvblox map slice
 - 低矮障碍能进入 costmap。
 - 空洞区域不会被误判为可靠 free space。
 
-### Phase 5: Nav2 接入
+### 阶段 5：Nav2 接入
 
 目标：Nav2 只消费 nvblox costmap，不再依赖自研 local_map_builder。
 
@@ -172,7 +172,7 @@ nvblox map slice
 - local/global costmap 均来自 `/nvblox_node/static_map_slice`。
 - 发送目标点后机器人能规划、避障、停止。
 
-### Phase 6: MPPI 控制器替换 DWB
+### 阶段 6：MPPI 控制器替换 DWB
 
 目标：将 Nav2 controller 从 DWB 切换到 MPPI，让全向轮在 nvblox costmap 上获得更平滑、更适合狭窄空间的局部控制。
 
@@ -205,7 +205,7 @@ nvblox map slice
 - 在 250 mm 低矮通道前能稳定减速和绕避。
 - 无明显振荡、反复倒车、卡死。
 
-### Phase 7: ESS 深度升级
+### 阶段 7：ESS 深度升级
 
 目标：在主闭环跑通后，用 ESS 替代或补强 OAK-D 原生 depth。
 
@@ -223,7 +223,7 @@ nvblox map slice
 - nvblox 地图稳定性提升。
 - 端到端延迟仍满足避障要求。
 
-### Phase 8: MID360 local safety layer
+### 阶段 8：MID360 局部安全层
 
 目标：在 MPPI 和 nvblox 主闭环稳定后，将 MID360 作为局部安全障碍层接入，只影响 Nav2 local costmap，不参与主定位、不进入第一版 nvblox 主地图。
 
@@ -248,7 +248,7 @@ nvblox map slice
 - 不要求 OAK-D 与 MID360 做严格时间戳对齐。
 - 关闭 MID360 后，OAK-D + nvblox + MPPI 主链路仍可运行。
 
-### Phase 9: 可靠性测试
+### 阶段 9：可靠性测试
 
 目标：验证新架构在目标场景内可用。
 
@@ -275,24 +275,25 @@ nvblox map slice
 
 | 风险 | 影响 | 缓解 |
 |---|---|---|
-| OAK-D 未发布 left/right CameraInfo | Visual SLAM/ESS 无法正确运行 | Phase 2 补齐相机信息发布 |
+| OAK-D 未发布 left/right CameraInfo | Visual SLAM/ESS 无法正确运行 | 阶段 2 补齐相机信息发布 |
 | 低纹理导致 Visual SLAM 丢失 | 无底盘里程计时定位中断 | 降速、改善光照、后续加安全停机 |
-| OAK-D 原生 depth 空洞 | nvblox 障碍漏检 | Phase 7 接 ESS |
+| OAK-D 原生 depth 空洞 | nvblox 障碍漏检 | 阶段 7 接 ESS |
 | ESS 引入额外延迟 | 近场避障反应变慢 | 先测延迟，再决定是否只用于建图 |
 | nvblox 高度切片不合适 | 低矮障碍漏检或误检 | 针对 250 mm 通道调参 |
 | MPPI 参数不合适 | 轨迹振荡、贴障、倒车异常 | 低速调参，先限制速度和加速度 |
 | MID360 obstacle layer 保持时间过长 | 动态障碍残留 | 缩短 observation persistence 和 clearing 时间 |
 | Isaac ROS 包版本不匹配 | launch 或参数不可用 | 固定 Isaac ROS 版本并记录 |
+| 误用旧 VINS 入口 | 进入未维护链路，TF/内参/时间戳不可信 | 当前只使用 `oakd_visual_slam_rviz.launch.py` 和 `nvidia_3d_nav.launch.py`；恢复 VINS 需单独立项 |
 
 ## 5. 最小可行版本
 
-MVP 不包含 ESS：
+最小可行版本不包含 ESS：
 
 ```text
-OAK-D raw depth + Visual SLAM + nvblox + Nav2
+OAK-D 原生深度 + Visual SLAM + nvblox + Nav2
 ```
 
-MVP 成功标准：
+最小可行版本成功标准：
 
 - 不用底盘里程计。
 - 不用 MID360。
@@ -302,10 +303,11 @@ MVP 成功标准：
 
 ## 6. 后续扩展
 
-只有在 MVP 跑稳后再考虑：
+只有在最小可行版本跑稳后再考虑：
 
 - ESS depth 替换。
 - 语义分割 mask。
 - robot_localization 融合额外定位源。
 - MID360 进入 nvblox 多传感器融合。
 - FAST-LIO / MID360 作为定位备选。
+- VINS-Fusion 作为备选定位重新评估；必须先移除 `COLCON_IGNORE`、修复依赖、重新标定 OAK-D 内外参和时间戳。
