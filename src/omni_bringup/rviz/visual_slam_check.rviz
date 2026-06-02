@@ -5,6 +5,7 @@ Panels:
     Property Tree Widget:
       Expanded:
         - /Global Options1
+        - /TF1
         - /Visual SLAM1
       Splitter Ratio: 0.5
     Tree Height: 620
@@ -27,10 +28,10 @@ Visualization Manager:
       Value: true
     - Class: rviz_default_plugins/TF
       Enabled: true
-      Frame Timeout: 15
+      Frame Timeout: 30
       Frames:
         All Enabled: true
-      Marker Scale: 0.35
+      Marker Scale: 0.55
       Name: TF
       Show Arrows: true
       Show Axes: true
@@ -58,7 +59,7 @@ Visualization Manager:
               Value: false
             Value: false
           Enabled: true
-          Keep: 100
+          Keep: 50
           Name: Tracking Odometry
           Position Tolerance: 0.1
           Shape: Arrow
@@ -73,7 +74,7 @@ Visualization Manager:
           Alpha: 1
           Buffer Length: 1
           Color: 44; 160; 255
-          Enabled: true
+          Enabled: false
           Line Style: Lines
           Line Width: 0.04
           Name: SLAM Path
@@ -90,7 +91,7 @@ Visualization Manager:
             History Policy: Keep Last
             Reliability Policy: Reliable
             Value: /visual_slam/tracking/slam_path
-          Value: true
+          Value: false
         - Class: rviz_default_plugins/Path
           Alpha: 1
           Buffer Length: 1
@@ -155,7 +156,7 @@ Visualization Manager:
         Z: 0
       Name: Current View
       Pitch: 1.2
-      Target Frame: odom
+      Target Frame: base_link
       Yaw: 0.8
     Saved: ~
 Window Geometry:

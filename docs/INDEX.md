@@ -8,6 +8,7 @@ This documentation set is for the ground omni-wheel navigation stack.
 - [INSTALLATION](./INSTALLATION.md): environment setup.
 - [CUDA Toolkit 13.2 Installation](./CUDA_TOOLKIT_13_2_INSTALLATION.md): CUDA/nvcc setup matched to NVIDIA driver 595.71.05.
 - [OMNI_BRINGUP](./OMNI_BRINGUP.md): ground bringup notes.
+- [OAK-D Visual SLAM RViz](./OAKD_VISUAL_SLAM_RVIZ.md): OAK-D VIO validation launch, RViz preset, TF checks, and reset workflow.
 
 ## Active Runtime Scope
 

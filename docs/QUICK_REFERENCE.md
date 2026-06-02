@@ -36,6 +36,15 @@ src/oakd_perception/scripts/run_oakd_balance.sh
 ./scripts/with_venv.sh ros2 topic list | grep -E "/oakd|/imu"
 ```
 
+### OAK-D 视觉里程计 + RViz
+
+```bash
+env FASTDDS_BUILTIN_TRANSPORTS=UDPv4 ROS_LOG_DIR=/tmp/ros_log \
+./scripts/with_venv.sh ros2 launch src/omni_bringup/launch/oakd_visual_slam_rviz.launch.py
+```
+
+该入口只启动 OAK-D、Isaac ROS Visual SLAM、静态 TF 和 RViz，不启动 nvblox/Nav2/底盘桥。详细说明见 [OAKD_VISUAL_SLAM_RVIZ.md](./OAKD_VISUAL_SLAM_RVIZ.md)。
+
 ---
 
 ## 发布的主题
@@ -143,6 +152,22 @@ sleep 2
 ---
 
 ## RViz 配置
+
+OAK-D VIO 验证优先使用：
+
+```bash
+./scripts/with_venv.sh ros2 launch src/omni_bringup/launch/oakd_visual_slam_rviz.launch.py
+```
+
+默认 RViz 预设：
+
+```text
+src/omni_bringup/rviz/visual_slam_check.rviz
+```
+
+该预设使用 `Fixed Frame = odom`，并突出显示 `base_link`、TF、`/visual_slam/tracking/odometry` 和 `/visual_slam/tracking/vo_path`。
+
+传统点云查看方式：
 
 1. **启动 RViz**：`./scripts/with_venv.sh rviz2`
 2. **设置全局选项**：
