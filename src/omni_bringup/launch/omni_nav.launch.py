@@ -308,7 +308,7 @@ def launch_setup(context, *args, **kwargs):
                 ],
             ),
             Node(
-                package="nav_safety",
+                package="nav_guard",
                 executable="safety_monitor",
                 name="safety_monitor",
                 output="screen",

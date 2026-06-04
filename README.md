@@ -164,7 +164,7 @@ env FASTDDS_BUILTIN_TRANSPORTS=UDPv4 ROS_LOG_DIR=/tmp/ros_log \
 OAK-D stereo + IMU
     -> Isaac ROS Visual SLAM / cuVSLAM
     -> /visual_slam/tracking/odometry
-    -> odom_jump_guard
+    -> visual_odom_guard
     -> /visual_slam/guarded_odometry
     -> robot_localization EKF
     -> /odometry/filtered
@@ -222,7 +222,7 @@ Visual SLAM / TF：
 
 ## Odom 跳变保护
 
-`nav_safety/odom_jump_guard` 会拒绝明显不符合地面机器人运动约束的 Visual SLAM
+`nav_guard/visual_odom_guard` 会拒绝明显不符合地面机器人运动约束的 Visual SLAM
 位姿跳变。默认阈值：
 
 - 单帧 XY 位移 `> 0.20m`

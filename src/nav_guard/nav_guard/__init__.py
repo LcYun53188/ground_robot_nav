@@ -1,0 +1,1 @@
+"""Navigation safety monitor package."""

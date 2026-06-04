@@ -43,7 +43,7 @@ nvblox 地图切片
 ## 2. 设计原则
 
 - 单传感器时序域优先：第一版只使用 OAK-D，不融合 MID360。
-- 无底盘里程计：定位由 Visual SLAM 经 `odom_jump_guard` 和 `robot_localization` 输出 `odom -> base_link`。
+- 无底盘里程计：定位由 Visual SLAM 经 `visual_odom_guard` 和 `robot_localization` 输出 `odom -> base_link`。
 - 保守避障：nvblox 输出给 Nav2 costmap，低矮通道优先保证安全。
 - 主线独立：当前文档和验证流程以 `nvidia_3d_nav.launch.py` 与 `oakd_visual_slam_rviz.launch.py` 为准，旧 `omni_nav.launch.py` 不再作为文档主入口。
 - 分阶段接入 ESS：先用 OAK-D 原生 depth 跑通闭环，再启用 ESS。

@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = 'nav_safety'
+package_name = 'nav_guard'
 
 setup(
     name=package_name,
@@ -14,10 +14,9 @@ setup(
     zip_safe=True,
     maintainer='root',
     maintainer_email='root@todo.todo',
-    description='Safety monitor and emergency state publishing',
+    description='Navigation safety monitors and guarded visual odometry filtering',
     license='Apache-2.0',
     entry_points={'console_scripts': [
-        'odom_jump_guard = nav_safety.odom_jump_guard:main',
-        'safety_monitor = nav_safety.safety_monitor:main',
+        'safety_monitor = nav_guard.safety_monitor:main',
     ]},
 )

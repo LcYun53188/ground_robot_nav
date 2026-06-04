@@ -1,5 +1,5 @@
 import unittest
-from nav_safety.safety_monitor import SafetyMonitor
+from nav_guard.safety_monitor import SafetyMonitor
 from sensor_msgs.msg import PointCloud2
 from std_msgs.msg import Bool
 

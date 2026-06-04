@@ -14,7 +14,7 @@
   <depend>launch_ros</depend>
   <depend>nav_mapping</depend>
   <depend>nav_planning</depend>
-  <depend>nav_safety</depend>
+  <depend>nav_guard</depend>
 
   <exec_depend>ground_serial_bridge</exec_depend>
   <exec_depend>oakd_perception</exec_depend>

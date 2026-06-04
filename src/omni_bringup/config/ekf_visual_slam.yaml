@@ -12,7 +12,7 @@ ekf_filter_node:
     base_link_frame: base_link
     world_frame: odom
 
-    # The input is already protected by nav_safety/odom_jump_guard. Keep the
+    # The input is already protected by nav_guard/visual_odom_guard. Keep the
     # raw cuVSLAM odometry available for diagnostics, but feed Nav2 through
     # /odometry/filtered from this EKF node.
     odom0: /visual_slam/guarded_odometry

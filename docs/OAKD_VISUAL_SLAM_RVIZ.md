@@ -239,7 +239,7 @@ camera Y ~= base -Z
 
 ## Odom 跳变保护
 
-RViz 验证入口默认启动 `nav_safety/odom_jump_guard` 和
+RViz 验证入口默认启动 `nav_guard/visual_odom_guard` 和
 `robot_localization/ekf_node`。链路为：
 
 ```text

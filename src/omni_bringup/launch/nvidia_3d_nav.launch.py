@@ -248,9 +248,9 @@ def launch_setup(context, *args, **kwargs):
 
     nodes.append(
         Node(
-            package="nav_safety",
-            executable="odom_jump_guard",
-            name="odom_jump_guard",
+            package="nav_guard",
+            executable="visual_odom_guard",
+            name="visual_odom_guard",
             output="screen",
             parameters=[
                 {
