@@ -45,6 +45,12 @@ def generate_launch_description():
                 "odom_guard_output_topic",
                 default_value="/visual_slam/guarded_odometry",
             ),
+            DeclareLaunchArgument(
+                "odom_guard_path_topic",
+                default_value="/visual_slam/guarded_path",
+            ),
+            DeclareLaunchArgument("odom_guard_publish_path", default_value="true"),
+            DeclareLaunchArgument("odom_guard_path_max_poses", default_value="2000"),
             DeclareLaunchArgument("odom_guard_publish_tf", default_value="false"),
             DeclareLaunchArgument(
                 "filtered_odom_topic", default_value="/odometry/filtered"
@@ -108,6 +114,15 @@ def generate_launch_description():
                     ),
                     "odom_guard_output_topic": LaunchConfiguration(
                         "odom_guard_output_topic"
+                    ),
+                    "odom_guard_path_topic": LaunchConfiguration(
+                        "odom_guard_path_topic"
+                    ),
+                    "odom_guard_publish_path": LaunchConfiguration(
+                        "odom_guard_publish_path"
+                    ),
+                    "odom_guard_path_max_poses": LaunchConfiguration(
+                        "odom_guard_path_max_poses"
                     ),
                     "odom_guard_publish_tf": LaunchConfiguration(
                         "odom_guard_publish_tf"

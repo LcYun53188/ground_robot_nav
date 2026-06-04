@@ -258,6 +258,9 @@ def launch_setup(context, *args, **kwargs):
                     "input_topic": LaunchConfiguration("odom_guard_input_topic"),
                     "output_topic": LaunchConfiguration("odom_guard_output_topic"),
                     "status_topic": LaunchConfiguration("odom_guard_status_topic"),
+                    "path_topic": LaunchConfiguration("odom_guard_path_topic"),
+                    "publish_path": LaunchConfiguration("odom_guard_publish_path"),
+                    "path_max_poses": LaunchConfiguration("odom_guard_path_max_poses"),
                     "publish_tf": False
                     if launch_robot_localization
                     else LaunchConfiguration("odom_guard_publish_tf"),
@@ -425,6 +428,12 @@ def generate_launch_description():
                 "odom_guard_status_topic",
                 default_value="/visual_slam/odom_guard/status",
             ),
+            DeclareLaunchArgument(
+                "odom_guard_path_topic",
+                default_value="/visual_slam/guarded_path",
+            ),
+            DeclareLaunchArgument("odom_guard_publish_path", default_value="true"),
+            DeclareLaunchArgument("odom_guard_path_max_poses", default_value="2000"),
             DeclareLaunchArgument("odom_guard_publish_tf", default_value="true"),
             DeclareLaunchArgument("odom_guard_odom_frame", default_value="odom"),
             DeclareLaunchArgument("odom_guard_base_frame", default_value="base_link"),

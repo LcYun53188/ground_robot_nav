@@ -5,7 +5,8 @@ import math
 
 import rclpy
 from geometry_msgs.msg import TransformStamped
-from nav_msgs.msg import Odometry
+from geometry_msgs.msg import PoseStamped
+from nav_msgs.msg import Odometry, Path
 from rclpy.node import Node
 from std_msgs.msg import String
 from tf2_ros import TransformBroadcaster
@@ -47,6 +48,9 @@ class OdomJumpGuard(Node):
         self.declare_parameter("input_topic", "/visual_slam/tracking/odometry")
         self.declare_parameter("output_topic", "/visual_slam/guarded_odometry")
         self.declare_parameter("status_topic", "/visual_slam/odom_guard/status")
+        self.declare_parameter("path_topic", "/visual_slam/guarded_path")
+        self.declare_parameter("publish_path", True)
+        self.declare_parameter("path_max_poses", 2000)
         self.declare_parameter("publish_tf", False)
         self.declare_parameter("odom_frame", "odom")
         self.declare_parameter("base_frame", "base_link")
@@ -65,6 +69,9 @@ class OdomJumpGuard(Node):
         self.input_topic = self.get_parameter("input_topic").value
         self.output_topic = self.get_parameter("output_topic").value
         self.status_topic = self.get_parameter("status_topic").value
+        self.path_topic = self.get_parameter("path_topic").value
+        self.publish_path = bool(self.get_parameter("publish_path").value)
+        self.path_max_poses = int(self.get_parameter("path_max_poses").value)
         self.publish_tf = bool(self.get_parameter("publish_tf").value)
         self.odom_frame = self.get_parameter("odom_frame").value
         self.base_frame = self.get_parameter("base_frame").value
@@ -95,15 +102,23 @@ class OdomJumpGuard(Node):
         self.accepted_count = 0
         self.rejected_count = 0
         self.held_count = 0
+        self.path_msg = Path()
+        self.path_msg.header.frame_id = self.odom_frame
 
         self.odom_pub = self.create_publisher(Odometry, self.output_topic, 20)
         self.status_pub = self.create_publisher(String, self.status_topic, 10)
+        self.path_pub = (
+            self.create_publisher(Path, self.path_topic, 10)
+            if self.publish_path
+            else None
+        )
         self.tf_broadcaster = TransformBroadcaster(self) if self.publish_tf else None
         self.sub = self.create_subscription(Odometry, self.input_topic, self.odom_cb, 50)
 
         self.get_logger().info(
             "Odom jump guard started: "
-            f"{self.input_topic} -> {self.output_topic}, publish_tf={self.publish_tf}"
+            f"{self.input_topic} -> {self.output_topic}, "
+            f"publish_tf={self.publish_tf}, publish_path={self.publish_path}"
         )
 
     def odom_cb(self, msg):
@@ -183,6 +198,7 @@ class OdomJumpGuard(Node):
         self.accepted_count += 1
         self.odom_pub.publish(guarded)
         self.publish_tf_msg(guarded)
+        self.publish_path_msg(guarded)
         self.publish_status(
             f"{status}: accepted={self.accepted_count}, "
             f"rejected={self.rejected_count}, held={self.held_count}"
@@ -201,6 +217,7 @@ class OdomJumpGuard(Node):
         self.held_count += 1
         self.odom_pub.publish(held)
         self.publish_tf_msg(held)
+        self.publish_path_msg(held)
 
     def should_reseed(self, msg):
         if self.max_hold_sec_before_reseed <= 0.0:
@@ -235,6 +252,20 @@ class OdomJumpGuard(Node):
         transform.transform.translation.z = odom.pose.pose.position.z
         transform.transform.rotation = odom.pose.pose.orientation
         self.tf_broadcaster.sendTransform(transform)
+
+    def publish_path_msg(self, odom):
+        if self.path_pub is None:
+            return
+
+        pose = PoseStamped()
+        pose.header = odom.header
+        pose.pose = odom.pose.pose
+        self.path_msg.header.stamp = odom.header.stamp
+        self.path_msg.header.frame_id = self.odom_frame
+        self.path_msg.poses.append(pose)
+        if self.path_max_poses > 0 and len(self.path_msg.poses) > self.path_max_poses:
+            self.path_msg.poses = self.path_msg.poses[-self.path_max_poses :]
+        self.path_pub.publish(self.path_msg)
 
     def publish_status(self, text):
         self.status_pub.publish(String(data=text))

@@ -155,8 +155,8 @@ Visualization Manager:
         - Class: rviz_default_plugins/Path
           Alpha: 1
           Buffer Length: 1
-          Color: 70; 220; 120
-          Enabled: true
+          Color: 255; 92; 92
+          Enabled: false
           Line Style: Lines
           Line Width: 0.03
           Name: VO Path
@@ -173,6 +173,28 @@ Visualization Manager:
             History Policy: Keep Last
             Reliability Policy: Reliable
             Value: /visual_slam/tracking/vo_path
+          Value: false
+        - Class: rviz_default_plugins/Path
+          Alpha: 1
+          Buffer Length: 1
+          Color: 70; 220; 120
+          Enabled: true
+          Line Style: Lines
+          Line Width: 0.04
+          Name: Guarded Path
+          Offset:
+            X: 0
+            Y: 0
+            Z: 0
+          Pose Color: 70; 220; 120
+          Pose Style: None
+          Radius: 0.03
+          Topic:
+            Depth: 10
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+            Value: /visual_slam/guarded_path
           Value: true
       Enabled: true
       Name: Visual SLAM
