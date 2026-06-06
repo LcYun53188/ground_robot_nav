@@ -406,9 +406,15 @@ def _build_stage(config: Dict[str, Any], state: RobotState) -> None:
     ground.AddScaleOp().Set(Gf.Vec3f(ground_size, ground_size, 0.05))
 
     robot_path = _deep_get(config, "robot.prim_path", "/World/GroundRobot")
+    robot_height = float(_deep_get(config, "robot.dimensions.height_m", 0.20))
     robot = UsdGeom.Cube.Define(stage, robot_path)
+    robot.CreateSizeAttr(1.0)
     robot.AddTranslateOp().Set(Gf.Vec3d(state.x, state.y, state.z))
-    robot.AddScaleOp().Set(Gf.Vec3f(0.55, 0.45, 0.18))
+    robot.AddScaleOp().Set(Gf.Vec3f(
+        float(_deep_get(config, "robot.dimensions.length_m", 0.55)),
+        float(_deep_get(config, "robot.dimensions.width_m", 0.45)),
+        robot_height,
+    ))
 
     for index in range(int(_deep_get(config, "scene.obstacle_count", 4))):
         obstacle = UsdGeom.Cube.Define(stage, f"/World/Obstacle_{index}")
@@ -455,7 +461,11 @@ def main() -> None:
     state = RobotState(
         x=float(_deep_get(config, "robot.initial_pose.x", 0.0)),
         y=float(_deep_get(config, "robot.initial_pose.y", 0.0)),
-        z=float(_deep_get(config, "robot.initial_pose.z", 0.18)),
+        z=float(_deep_get(
+            config,
+            "robot.initial_pose.z",
+            float(_deep_get(config, "robot.dimensions.height_m", 0.20)) / 2.0,
+        )),
         yaw=float(_deep_get(config, "robot.initial_pose.yaw", 0.0)),
     )
 

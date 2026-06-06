@@ -54,7 +54,7 @@ class OakDPointCloudNode(Node):
         # ============ 点云过滤参数配置 ============
         self.declare_parameter("sampling_step", 2)  # 采样间隔
         self.declare_parameter("min_depth", 200)  # 最小深度(mm)
-        self.declare_parameter("max_depth", 5000)  # 最大深度(mm)
+        self.declare_parameter("max_depth", 15000)  # 最大深度(mm)
         self.declare_parameter("depth_border_crop_px", 8)
         self.declare_parameter("max_depth_jump_mm", 350)
         self.declare_parameter("filtered_pointcloud_topic", "/oakd/points_filtered")

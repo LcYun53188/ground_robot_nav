@@ -24,12 +24,16 @@ nvblox_node:
     # Low ground robot: keep the relevant vertical band tight enough for 250 mm
     # passages, but leave room for brackets and hanging obstacles.
     slice_height: 0.12
-    min_height: 0.03
-    max_height: 1.20
+    min_height: 0.10
+    max_height: 0.50
 
     maximum_sensor_message_queue_length: 10
+    max_back_projection_distance: 15.0
     # Use every other depth pixel for integration. This trades fine detail for
     # lower GPU/CPU load and smoother live costmap visualization.
     back_projection_subsampling: 2
     depth_qos: sensor_data
     color_qos: sensor_data
+
+    static_mapper:
+      projective_integrator_max_integration_distance_m: 15.0

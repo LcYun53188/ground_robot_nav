@@ -68,7 +68,11 @@ class IsaacSimRosBridge(Node):
         self.state = RobotState(
             x=float(_deep_get(config, "robot.initial_pose.x", 0.0)),
             y=float(_deep_get(config, "robot.initial_pose.y", 0.0)),
-            z=float(_deep_get(config, "robot.initial_pose.z", 0.18)),
+            z=float(_deep_get(
+                config,
+                "robot.initial_pose.z",
+                float(_deep_get(config, "robot.dimensions.height_m", 0.20)) / 2.0,
+            )),
             yaw=float(_deep_get(config, "robot.initial_pose.yaw", 0.0)),
         )
         self.cmd_vel = Twist()

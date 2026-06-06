@@ -52,7 +52,7 @@ class OakDUnifiedNode(Node):
         self.declare_parameter("pointcloud_frame_id", "oakd_imu_link")
         self.declare_parameter("sampling_step", 2)
         self.declare_parameter("min_depth", 200)
-        self.declare_parameter("max_depth", 5000)
+        self.declare_parameter("max_depth", 15000)
         self.declare_parameter("depth_border_crop_px", 8)
         self.declare_parameter("max_depth_jump_mm", 350)
         self.declare_parameter("enable_fov_boundary_filter", True)

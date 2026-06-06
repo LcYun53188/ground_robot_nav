@@ -44,8 +44,12 @@ robot:
   initial_pose:
     x: 0.0
     y: 0.0
-    z: 0.18
+    z: 0.10
     yaw: 0.0
+  dimensions:
+    length_m: 0.55
+    width_m: 0.45
+    height_m: 0.20
   max_linear_speed_mps: 0.6
   max_angular_speed_radps: 1.0
   cmd_vel_topic: "/cmd_vel"

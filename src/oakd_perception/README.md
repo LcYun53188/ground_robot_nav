@@ -102,7 +102,7 @@
 - `ir_intensity` — IR强度（范围 0-1600，默认 1600）
 - `sampling_step` — 降采样步长（默认 2）
 - `min_depth` — 最小深度（默认 200mm）
-- `max_depth` — 最大深度（默认 5000mm）
+- `max_depth` — 最大深度（默认 15000mm）
 - `enable_fov_boundary_filter` — 是否启用四棱锥边界过滤（默认 true）
 - `auto_estimate_fov` — 是否根据相机内参自动估计 FOV（默认 true）
 - `fov_h_deg` / `fov_v_deg` — 手动 FOV 兜底值（默认 72.0 / 53.0）

@@ -380,7 +380,7 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument("sampling_step", default_value="2"),
             DeclareLaunchArgument("min_depth", default_value="200"),
-            DeclareLaunchArgument("max_depth", default_value="5000"),
+            DeclareLaunchArgument("max_depth", default_value="15000"),
             DeclareLaunchArgument("depth_border_crop_px", default_value="8"),
             DeclareLaunchArgument("max_depth_jump_mm", default_value="350"),
             DeclareLaunchArgument(

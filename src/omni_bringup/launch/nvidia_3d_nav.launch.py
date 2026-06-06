@@ -163,6 +163,7 @@ def launch_setup(context, *args, **kwargs):
                     "pointcloud_frequency": LaunchConfiguration(
                         "oakd_pointcloud_frequency"
                     ),
+                    "max_depth": LaunchConfiguration("oakd_max_depth"),
                     "enable_pointcloud_publish": LaunchConfiguration(
                         "oakd_enable_pointcloud_publish"
                     ),
@@ -472,6 +473,7 @@ def generate_launch_description():
                 "oakd_image_inter_publish_delay_ms", default_value="1.0"
             ),
             DeclareLaunchArgument("oakd_pointcloud_frequency", default_value="15"),
+            DeclareLaunchArgument("oakd_max_depth", default_value="15000"),
             DeclareLaunchArgument("oakd_stereo_quality_mode", default_value="auto"),
             # Visual SLAM and nvblox consume stereo images, IMU, and depth image.
             # The host-generated PointCloud2 stream is expensive and not needed

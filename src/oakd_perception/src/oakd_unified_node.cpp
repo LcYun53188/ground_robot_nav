@@ -102,7 +102,7 @@ private:
     declare_parameter("pointcloud_frame_id", "oakd_imu_link");
     declare_parameter("sampling_step", 2);
     declare_parameter("min_depth", 200);
-    declare_parameter("max_depth", 5000);
+    declare_parameter("max_depth", 15000);
     declare_parameter("depth_border_crop_px", 8);
     declare_parameter("max_depth_jump_mm", 350);
     declare_parameter("enable_fov_boundary_filter", true);
@@ -717,7 +717,7 @@ private:
   std::string pointcloud_frame_id_;
   int sampling_step_{2};
   int min_depth_{200};
-  int max_depth_{5000};
+  int max_depth_{15000};
   int depth_border_crop_px_{8};
   int max_depth_jump_mm_{350};
   bool enable_fov_boundary_filter_{true};
