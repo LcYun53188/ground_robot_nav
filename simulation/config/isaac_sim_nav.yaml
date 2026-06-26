@@ -3,12 +3,22 @@
 # The runner reads this file before Isaac Sim starts. Keep paths configurable
 # because Isaac Sim is not installed in a fixed location on this workstation.
 isaac_sim:
-  # Preferred: set ISAAC_SIM_PYTHON or put the absolute path here, for example:
-  # /home/nuc/isaacsim/python.sh
-  python_executable: "/home/nuc/Program/ground_robot_nav_ws/.venv-isaac-sim/bin/python"
+  # This workspace targets Isaac Sim 4.5 for local UI/RTX testing because the
+  # RTX 4070 Laptop 8 GB GPU does not meet Isaac Sim 5.1's VRAM check.
+  target_version: "4.5"
 
-  # Optional: path to isaac-sim.sh when you want to launch the full app manually.
-  app_executable: ""
+  # "ros_bridge_only" is the lightweight smoke-test path: it publishes /clock,
+  # TF, odometry, and synthetic RGB-D from ROS only, so it does not require
+  # Isaac Kit to start. Use "isaac" for real Isaac-rendered RGB-D once the local
+  # Isaac Sim installation can launch reliably.
+  launch_mode: "ros_bridge_only"
+
+  # Preferred: set ISAAC_SIM_PYTHON or put the absolute path here. This
+  # workstation uses the Isaac Sim 4.5 pip environment managed by uv.
+  python_executable: "/home/nuc/Program/ground_robot_nav_ws/.venv-isaac-sim-4.5/bin/python"
+
+  # Optional: path to the Isaac Sim app launcher when you want to launch the UI.
+  app_executable: "/home/nuc/Program/ground_robot_nav_ws/.venv-isaac-sim-4.5/bin/isaacsim"
   headless: true
   renderer: "RaytracedLighting"
   anti_aliasing: 0
@@ -21,10 +31,16 @@ isaac_sim:
 ros:
   domain_id: 0
   use_sim_time: true
-  # Isaac Sim pip uses Python 3.11, while ROS Jazzy rclpy is Python 3.12 on
-  # this host. Keep ROS topic publication in the external ROS bridge process.
+  # Isaac Sim and ROS Jazzy can use incompatible Python/rclpy ABIs. Keep ROS
+  # topic publication in the external ROS bridge process.
   use_internal_python_bridge: false
   start_external_ros_bridge: true
+  # When oakd.render_mode is "isaac", the external ROS bridge connects to the
+  # Isaac process over localhost TCP. The bridge sends the current robot pose to
+  # Isaac Sim, and Isaac Sim returns rendered RGB-D frames for ROS publication.
+  frame_server_host: "127.0.0.1"
+  frame_server_port: 47650
+  frame_server_timeout_sec: 0.10
 
 scene:
   stage_units_in_meters: 1.0
@@ -69,9 +85,16 @@ oakd:
     pitch: 0.0
     yaw: 0.0
   stereo_baseline_m: 0.075
+  # "isaac" publishes rendered RGB-D frames from the Isaac stage. "pattern"
+  # keeps the synthetic fixed-pattern smoke test and is the default lightweight
+  # mode for hosts where Isaac Kit cannot initialize.
+  render_mode: "pattern"
+  camera_focal_length_mm: 2.4
+  camera_horizontal_aperture_mm: 3.6
+  near_clip_m: 0.05
+  far_clip_m: 8.0
   resolution:
-    # Keep the no-model smoke test light enough for the Python fallback bridge.
-    # Real Isaac Sim camera validation can raise this once RTX/Kit is stable.
+    # Keep default RGB-D rendering light enough for headless validation.
     width: 320
     height: 240
   frequency_hz: 30

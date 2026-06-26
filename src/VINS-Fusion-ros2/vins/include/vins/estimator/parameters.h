@@ -18,6 +18,7 @@
 #include <map>
 #include <opencv2/core/eigen.hpp>
 #include <opencv2/opencv.hpp>
+#include <string>
 #include <vector>
 
 using namespace std;
@@ -37,9 +38,11 @@ struct ImuOptions {
   double gyroNoiseDensity = 0.0, gyroRandomWalk = 0.0;
   Eigen::Vector3d gravityVector{0.0, 0.0, 9.8};
   std::string imu_topic;
+  std::string axis_mode = "raw";
   int useImu = 0;
   bool hasImu() const { return useImu; }
   std::string imuTopic() const { return imu_topic; }
+  std::string imuAxisMode() const { return axis_mode; }
   Eigen::Vector3d gravity() const { return gravityVector; }
   Eigen::Vector3d& gravity() { return gravityVector; }
 };
@@ -76,6 +79,10 @@ struct VINSOptions {
   double ransac_reproj_threshold = 0.0;
   int show_track = 0;
   int enable_reverse_optical_flow_check = 0;
+  double tracker_frequency = 0.0;
+  double stereo_max_y_diff_px = 2.0;
+  double stereo_min_disparity_px = 1.0;
+  double stereo_max_disparity_px = 180.0;
   ///////////////////////////////////////////////////////////////////////////
 
   // 读取参数函数
@@ -93,6 +100,37 @@ struct VINSOptions {
     this->ransac_reproj_threshold = (double)fsSettings["F_threshold"];
     this->show_track = (int)fsSettings["show_track"];
     this->enable_reverse_optical_flow_check = (int)fsSettings["flow_back"];
+    this->tracker_frequency = (double)fsSettings["freq"];
+    if (this->tracker_frequency < 0.0) {
+      VINS_WARN << "Negative tracker frequency is invalid, "
+                << "processing every image";
+      this->tracker_frequency = 0.0;
+    }
+    if (!fsSettings["stereo_max_y_diff_px"].empty()) {
+      this->stereo_max_y_diff_px = (double)fsSettings["stereo_max_y_diff_px"];
+    }
+    if (!fsSettings["stereo_min_disparity_px"].empty()) {
+      this->stereo_min_disparity_px =
+          (double)fsSettings["stereo_min_disparity_px"];
+    }
+    if (!fsSettings["stereo_max_disparity_px"].empty()) {
+      this->stereo_max_disparity_px =
+          (double)fsSettings["stereo_max_disparity_px"];
+    }
+    if (this->stereo_min_disparity_px < 0.0 ||
+        this->stereo_max_disparity_px <= this->stereo_min_disparity_px) {
+      VINS_WARN << "Invalid stereo disparity gate, using default [1, 180] px";
+      this->stereo_min_disparity_px = 1.0;
+      this->stereo_max_disparity_px = 180.0;
+    }
+    if (this->stereo_max_y_diff_px <= 0.0) {
+      VINS_WARN << "Invalid stereo y gate, using default 2 px";
+      this->stereo_max_y_diff_px = 2.0;
+    }
+    VINS_INFO << "tracker frequency: " << this->tracker_frequency
+              << " stereo gate y<=" << this->stereo_max_y_diff_px
+              << " disparity=[" << this->stereo_min_disparity_px << ", "
+              << this->stereo_max_disparity_px << "]";
 
     this->USE_GPU = (int)fsSettings["use_gpu"];
     this->USE_GPU_ACC_FLOW = (int)fsSettings["use_gpu_acc_flow"];
@@ -102,6 +140,16 @@ struct VINSOptions {
     VINS_INFO << "USE_IMU: " << this->hasImu() << std::endl;
     if (this->hasImu()) {
       fsSettings["imu_topic"] >> this->imu.imu_topic;
+      if (!fsSettings["imu_axis_mode"].empty()) {
+        fsSettings["imu_axis_mode"] >> this->imu.axis_mode;
+      }
+      if (this->imu.axis_mode != "raw" &&
+          this->imu.axis_mode != "oakd_raw_to_ros") {
+        VINS_WARN << "Unknown imu_axis_mode '" << this->imu.axis_mode
+                  << "', using raw IMU axes";
+        this->imu.axis_mode = "raw";
+      }
+      VINS_INFO << "IMU axis mode: " << this->imu.axis_mode;
       this->imu.accelNoiseDensity = (double)fsSettings["acc_n"];
       this->imu.accelRandomWalk = (double)fsSettings["acc_w"];
       this->imu.gyroNoiseDensity = (double)fsSettings["gyr_n"];

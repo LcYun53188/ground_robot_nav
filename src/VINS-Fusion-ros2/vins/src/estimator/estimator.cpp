@@ -36,6 +36,7 @@ void Estimator::resetState() {
   std::lock_guard<std::mutex> lock(processingMutex);
   previousTimestamp = -1;
   currentTimestamp = 0;
+  lastPushedImageTimestamp = -1;
   openExEstimation = 0;
   inputImageCount = 0;
   isFirstPoseInitialized = false;
@@ -61,8 +62,12 @@ void Estimator::resetState() {
   tmp_pre_integration = nullptr;
   last_marginalization_info = nullptr;
   last_marginalization_parameter_blocks.clear();
+  safe_imu_pre_odom.clear();
+  safe_vio_odom.clear();
+  safe_key_poses.clear();
 
   featureManager.clearState();
+  featureTracker.resetState();
   failure_occur = 0;
   VINS_INFO << "reset state successfully";
 }
@@ -113,11 +118,17 @@ void Estimator::inputImage(const ImageData &image) {
     safe_track_image.set(track_image);
   }
 
-  if (inputImageCount % 2 == 0 || featureBuffer.empty()) {
+  const bool should_push_by_rate =
+      options->tracker_frequency <= 0.0 ||
+      lastPushedImageTimestamp < 0.0 ||
+      image.timestamp - lastPushedImageTimestamp >=
+          (1.0 / options->tracker_frequency) * 0.9;
+  if (should_push_by_rate || featureBuffer.empty()) {
     {
       std::lock_guard<std::mutex> lock(featureBufferMutex);
       featureBuffer.push(make_pair(image.timestamp, featureFrame));
     }
+    lastPushedImageTimestamp = image.timestamp;
     featureCondition.notify_one();
   }
 }
@@ -873,29 +884,55 @@ void Estimator::updateEstimates() {
 }
 
 bool Estimator::failureDetection() {
-  return false;
   if (featureManager.last_track_num < 2) {
+    VINS_WARN << "Failure detected: too few tracked features: "
+              << featureManager.last_track_num;
+    return true;
   }
   if (estimator_state[WINDOW_SIZE].accel_bias.norm() > 2.5) {
+    VINS_WARN << "Failure detected: accel bias too large: "
+              << estimator_state[WINDOW_SIZE].accel_bias.norm();
     return true;
   }
   if (estimator_state[WINDOW_SIZE].gyro_bias.norm() > 1.0) {
+    VINS_WARN << "Failure detected: gyro bias too large: "
+              << estimator_state[WINDOW_SIZE].gyro_bias.norm();
     return true;
   }
   Vector3d tmp_P = estimator_state[WINDOW_SIZE].position;
-  if ((tmp_P - last_state.position).norm() > 5) {
-    // return true;
+  if (!tmp_P.allFinite() || !estimator_state[WINDOW_SIZE].velocity.allFinite()) {
+    VINS_WARN << "Failure detected: non-finite odometry state";
+    return true;
   }
-  if (abs(tmp_P.z() - last_state.position.z()) > 1) {
-    // return true;
+  if (tmp_P.norm() > 20.0) {
+    VINS_WARN << "Failure detected: position norm too large: " << tmp_P.norm();
+    return true;
   }
-  Matrix3d tmp_R = estimator_state[WINDOW_SIZE].rotation;
-  Matrix3d delta_R = tmp_R.transpose() * last_state.rotation;
-  Quaterniond delta_Q(delta_R);
-  double delta_angle;
-  delta_angle = acos(delta_Q.w()) * 2.0 / 3.14 * 180.0;
-  if (delta_angle > 50) {
-    // return true;
+  if (estimator_state[WINDOW_SIZE].velocity.norm() > 3.0) {
+    VINS_WARN << "Failure detected: velocity too large: "
+              << estimator_state[WINDOW_SIZE].velocity.norm();
+    return true;
+  }
+  if (last_state.timestamp > 0.0) {
+    if ((tmp_P - last_state.position).norm() > 5) {
+      VINS_WARN << "Failure detected: position jump too large: "
+                << (tmp_P - last_state.position).norm();
+      return true;
+    }
+    if (abs(tmp_P.z() - last_state.position.z()) > 1) {
+      VINS_WARN << "Failure detected: z jump too large: "
+                << abs(tmp_P.z() - last_state.position.z());
+      return true;
+    }
+    Matrix3d tmp_R = estimator_state[WINDOW_SIZE].rotation;
+    Matrix3d delta_R = tmp_R.transpose() * last_state.rotation;
+    Quaterniond delta_Q(delta_R);
+    const double w = std::max(-1.0, std::min(1.0, std::abs(delta_Q.w())));
+    const double delta_angle = acos(w) * 2.0 / 3.14 * 180.0;
+    if (delta_angle > 50) {
+      VINS_WARN << "Failure detected: attitude jump too large: " << delta_angle;
+      return true;
+    }
   }
   return false;
 }

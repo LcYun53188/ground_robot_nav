@@ -25,6 +25,7 @@ config_path = sys.argv[1]
 python_executable = ""
 domain_id = "0"
 start_external_ros_bridge = "true"
+launch_mode = "isaac"
 
 section = []
 with open(config_path, "r", encoding="utf-8") as stream:
@@ -47,6 +48,8 @@ with open(config_path, "r", encoding="utf-8") as stream:
         path = section + [key]
         if path == ["isaac_sim", "python_executable"]:
             python_executable = value
+        elif path == ["isaac_sim", "launch_mode"]:
+            launch_mode = value or "isaac"
         elif path == ["ros", "domain_id"]:
             domain_id = value or "0"
         elif path == ["ros", "start_external_ros_bridge"]:
@@ -55,22 +58,14 @@ with open(config_path, "r", encoding="utf-8") as stream:
 print(f"PYTHON_EXECUTABLE={shlex.quote(python_executable)}")
 print(f"ROS_DOMAIN_ID={shlex.quote(domain_id)}")
 print(f"START_EXTERNAL_ROS_BRIDGE={shlex.quote(start_external_ros_bridge)}")
+print(f"LAUNCH_MODE={shlex.quote(launch_mode)}")
 PY
 )"
 
 eval "$CONFIG_VALUES"
 
 ISAAC_SIM_PYTHON="${ISAAC_SIM_PYTHON:-$PYTHON_EXECUTABLE}"
-if [ -z "$ISAAC_SIM_PYTHON" ]; then
-  echo "Set ISAAC_SIM_PYTHON or isaac_sim.python_executable in $CONFIG_FILE" >&2
-  echo "Example: export ISAAC_SIM_PYTHON=/home/nuc/isaacsim/python.sh" >&2
-  exit 1
-fi
-
-if [ ! -x "$ISAAC_SIM_PYTHON" ]; then
-  echo "Isaac Sim Python executable is not executable: $ISAAC_SIM_PYTHON" >&2
-  exit 1
-fi
+LAUNCH_MODE="${ISAAC_SIM_NAV_MODE:-$LAUNCH_MODE}"
 
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
 export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}"
@@ -88,10 +83,31 @@ trap cleanup EXIT INT TERM
 
 case "${START_EXTERNAL_ROS_BRIDGE,,}" in
   1|true|yes|on)
-    "$WS_DIR/scripts/with_venv.sh" python3 "$ROS_BRIDGE_SCRIPT" --config "$CONFIG_FILE" &
-    BRIDGE_PID="$!"
+    if [[ "${LAUNCH_MODE,,}" == "ros_bridge_only" || "${LAUNCH_MODE,,}" == "bridge_only" ]]; then
+      echo "[isaac_sim_nav] Starting lightweight ROS bridge only; Isaac Kit will not be launched."
+      exec "$WS_DIR/scripts/with_venv.sh" python3 "$ROS_BRIDGE_SCRIPT" --config "$CONFIG_FILE"
+    else
+      "$WS_DIR/scripts/with_venv.sh" python3 "$ROS_BRIDGE_SCRIPT" --config "$CONFIG_FILE" &
+      BRIDGE_PID="$!"
+    fi
     ;;
 esac
+
+if [[ "${LAUNCH_MODE,,}" == "ros_bridge_only" || "${LAUNCH_MODE,,}" == "bridge_only" ]]; then
+  echo "[isaac_sim_nav] ros.start_external_ros_bridge is disabled, nothing to run in ros_bridge_only mode." >&2
+  exit 2
+fi
+
+if [ -z "$ISAAC_SIM_PYTHON" ]; then
+  echo "Set ISAAC_SIM_PYTHON or isaac_sim.python_executable in $CONFIG_FILE" >&2
+  echo "Example: export ISAAC_SIM_PYTHON=/home/nuc/isaacsim/python.sh" >&2
+  exit 1
+fi
+
+if [ ! -x "$ISAAC_SIM_PYTHON" ]; then
+  echo "Isaac Sim Python executable is not executable: $ISAAC_SIM_PYTHON" >&2
+  exit 1
+fi
 
 # Keep ROS Jazzy's Python 3.12 path out of Isaac Sim's Python 3.11 process.
 env -u PYTHONPATH "$ISAAC_SIM_PYTHON" "$SCENE_SCRIPT" --config "$CONFIG_FILE" "$@"

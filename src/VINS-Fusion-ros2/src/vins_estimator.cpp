@@ -23,6 +23,21 @@ void VinsEstimator::initializeParamters() {
   options->readParameters(config_file);
   estimator_->initialize(options);
 }
+
+IMUData VinsEstimator::convertImuAxes(const IMUData& imu) const {
+  if (!options || options->imu.imuAxisMode() != "oakd_raw_to_ros") {
+    return imu;
+  }
+
+  IMUData converted = imu;
+  const auto convert = [](const Eigen::Vector3d& raw) {
+    return Eigen::Vector3d(raw.z(), -raw.y(), -raw.x());
+  };
+  converted.linear_acceleration = convert(imu.linear_acceleration);
+  converted.angular_velocity = convert(imu.angular_velocity);
+  return converted;
+}
+
 void VinsEstimator::initializeSubscribers() {
   imu_callback_group_ =
       this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
@@ -42,9 +57,9 @@ void VinsEstimator::initializeSubscribers() {
 
   if (options->hasImu()) {
     auto imu = this->create_subscription<sensor_msgs::msg::Imu>(
-        options->imuTopic(), rclcpp::QoS(rclcpp::KeepLast(100)),
+        options->imuTopic(), rclcpp::SensorDataQoS(),
         [this](const sensor_msgs::msg::Imu::SharedPtr msg) {
-          auto imu_msg = fromMsg(*msg);
+          auto imu_msg = convertImuAxes(fromMsg(*msg));
           estimator_->inputIMU(imu_msg);
         },
         sub_opt_imu);
@@ -68,7 +83,7 @@ void VinsEstimator::initializeSubscribers() {
                                           std::placeholders::_2));
   } else {
     auto sub_img0 = this->create_subscription<sensor_msgs::msg::Image>(
-        options->imageTopic(), rclcpp::QoS(rclcpp::KeepLast(100)),
+        options->imageTopic(), rclcpp::SensorDataQoS(),
         [this](const sensor_msgs::msg::Image::SharedPtr msg) {
           ImageData image;
           image.image0 = fromMsg(*msg);

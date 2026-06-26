@@ -26,6 +26,18 @@ double distance(cv::Point2f pt1, cv::Point2f pt2) {
   return sqrt(dx * dx + dy * dy);
 }
 
+bool isStereoMatchValid(const cv::Point2f &left_pt,
+                        const cv::Point2f &right_pt,
+                        const cv::Point2f &reverse_left_pt,
+                        const std::shared_ptr<VINSOptions> &options) {
+  const double y_diff = std::abs(left_pt.y - right_pt.y);
+  const double disparity = left_pt.x - right_pt.x;
+  return distance(left_pt, reverse_left_pt) <= 0.5 &&
+         y_diff <= options->stereo_max_y_diff_px &&
+         disparity >= options->stereo_min_disparity_px &&
+         disparity <= options->stereo_max_disparity_px;
+}
+
 void reduceVector(vector<cv::Point2f> &v, vector<uchar> status) {
   int j = 0;
   for (int i = 0; i < int(v.size()); i++)
@@ -48,6 +60,38 @@ FeatureTracker::FeatureTracker() {
 
 void FeatureTracker::setOptions(std::shared_ptr<VINSOptions> options_) {
   options = options_;
+}
+
+void FeatureTracker::resetState() {
+  prev_img.release();
+  cur_img.release();
+  imTrack.release();
+  mask.release();
+  fisheye_mask.release();
+  n_pts.clear();
+  predict_pts.clear();
+  predict_pts_debug.clear();
+  prev_pts.clear();
+  cur_pts.clear();
+  cur_right_pts.clear();
+  prev_un_pts.clear();
+  cur_un_pts.clear();
+  cur_un_right_pts.clear();
+  pts_velocity.clear();
+  right_pts_velocity.clear();
+  ids.clear();
+  ids_right.clear();
+  track_cnt.clear();
+  cur_un_pts_map.clear();
+  prev_un_pts_map.clear();
+  cur_un_right_pts_map.clear();
+  prev_un_right_pts_map.clear();
+  prevLeftPtsMap.clear();
+  cur_time = 0.0;
+  prev_time = 0.0;
+  last_log_time = 0.0;
+  hasPrediction = false;
+  n_id = 0;
 }
 
 void FeatureTracker::setMask() {
@@ -324,8 +368,10 @@ FeatureTracker::trackImage(double _cur_time, const cv::Mat &_img,
                                    reverseLeftPts, statusRightLeft, err,
                                    cv::Size(21, 21), 3);
           for (size_t i = 0; i < status.size(); i++) {
-            if (status[i] && statusRightLeft[i] && inBorder(cur_right_pts[i]) &&
-                distance(cur_pts[i], reverseLeftPts[i]) <= 0.5)
+            if (status[i] && statusRightLeft[i] &&
+                inBorder(cur_right_pts[i]) &&
+                isStereoMatchValid(cur_pts[i], cur_right_pts[i],
+                                   reverseLeftPts[i], options))
               status[i] = 1;
             else
               status[i] = 0;
@@ -371,8 +417,10 @@ FeatureTracker::trackImage(double _cur_time, const cv::Mat &_img,
           status_gpu_RightLeft.download(tmp1_status);
           statusRightLeft = tmp1_status;
           for (size_t i = 0; i < status.size(); i++) {
-            if (status[i] && statusRightLeft[i] && inBorder(cur_right_pts[i]) &&
-                distance(cur_pts[i], reverseLeftPts[i]) <= 0.5)
+            if (status[i] && statusRightLeft[i] &&
+                inBorder(cur_right_pts[i]) &&
+                isStereoMatchValid(cur_pts[i], cur_right_pts[i],
+                                   reverseLeftPts[i], options))
               status[i] = 1;
             else
               status[i] = 0;
@@ -394,6 +442,13 @@ FeatureTracker::trackImage(double _cur_time, const cv::Mat &_img,
   }
   if (options->shouldShowTrack()) {
     drawTrack(cur_img, rightImg, ids, cur_pts, cur_right_pts, prevLeftPtsMap);
+  }
+
+  if (cur_time - last_log_time >= 1.0) {
+    VINS_INFO << "feature tracker: left=" << cur_pts.size()
+              << " stereo=" << cur_right_pts.size()
+              << " new=" << n_pts.size();
+    last_log_time = cur_time;
   }
 
   prev_img = cur_img;

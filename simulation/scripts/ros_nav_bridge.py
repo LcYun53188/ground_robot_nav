@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """ROS2-side fallback bridge for Isaac Sim navigation smoke tests.
 
-Isaac Sim 5.1 pip runs on Python 3.11, while this workstation's ROS Jazzy
-rclpy is built for Python 3.12. This helper runs under the workspace/ROS Python
-and publishes the minimal topics expected by the Nav2/nvblox simulation launch.
+Isaac Sim and this workstation's ROS Jazzy environment can use incompatible
+Python/rclpy ABIs. This helper runs under the workspace/ROS Python and
+publishes the minimal topics expected by the Nav2/nvblox simulation launch.
 """
 
 from __future__ import annotations
 
 import argparse
 import math
+import socket
 import struct
 from dataclasses import dataclass
 from pathlib import Path
@@ -51,6 +52,15 @@ def _quat_from_yaw(yaw: float) -> tuple[float, float, float, float]:
 
 
 @dataclass
+class RenderFrame:
+    width: int
+    height: int
+    left_rgb: bytearray
+    right_rgb: bytearray
+    depth_32fc1: bytearray
+
+
+@dataclass
 class RobotState:
     x: float
     y: float
@@ -59,6 +69,85 @@ class RobotState:
     vx: float = 0.0
     vy: float = 0.0
     wz: float = 0.0
+
+
+class IsaacRenderClient:
+    """Small TCP client for Isaac-rendered RGB-D frames.
+
+    ROS Jazzy and Isaac Sim use different Python ABIs on this host, so the
+    Isaac process renders frames and this ROS-side process publishes them.
+    """
+
+    _HEADER = struct.Struct("<4sdIIIII")
+
+    def __init__(self, config: Dict[str, Any]) -> None:
+        self.enabled = str(_deep_get(config, "oakd.render_mode", "pattern")).lower() == "isaac"
+        self.host = str(_deep_get(config, "ros.frame_server_host", "127.0.0.1"))
+        self.port = int(_deep_get(config, "ros.frame_server_port", 47650))
+        self.timeout = float(_deep_get(config, "ros.frame_server_timeout_sec", 0.10))
+        self.sock: socket.socket | None = None
+        self.last_frame: RenderFrame | None = None
+
+    def request_frame(self, state: RobotState, sim_time: float) -> RenderFrame | None:
+        if not self.enabled:
+            return None
+        if self.sock is None:
+            self._connect()
+        if self.sock is None:
+            return self.last_frame
+        try:
+            self.sock.sendall(
+                f"POSE {sim_time:.9f} {state.x:.9f} {state.y:.9f} {state.z:.9f} {state.yaw:.9f}\n".encode(
+                    "ascii"
+                )
+            )
+            header = self._read_exact(self._HEADER.size)
+            if header is None:
+                return self.last_frame
+            magic, _frame_time, width, height, left_len, right_len, depth_len = self._HEADER.unpack(
+                header
+            )
+            if magic != b"IRGB" or width <= 0 or height <= 0:
+                self._disconnect()
+                return self.last_frame
+            payload = self._read_exact(left_len + right_len + depth_len)
+            if payload is None:
+                return self.last_frame
+            left = bytearray(payload[:left_len])
+            right = bytearray(payload[left_len : left_len + right_len])
+            depth = bytearray(payload[left_len + right_len :])
+            self.last_frame = RenderFrame(width, height, left, right, depth)
+        except OSError:
+            self._disconnect()
+        return self.last_frame
+
+    def _connect(self) -> None:
+        try:
+            self.sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
+            self.sock.settimeout(self.timeout)
+        except OSError:
+            self.sock = None
+
+    def _disconnect(self) -> None:
+        if self.sock is not None:
+            try:
+                self.sock.close()
+            except OSError:
+                pass
+        self.sock = None
+
+    def _read_exact(self, size: int) -> bytes | None:
+        chunks = bytearray()
+        while len(chunks) < size:
+            try:
+                chunk = self.sock.recv(size - len(chunks)) if self.sock else b""
+            except socket.timeout:
+                return None
+            if not chunk:
+                self._disconnect()
+                return None
+            chunks.extend(chunk)
+        return bytes(chunks)
 
 
 class IsaacSimRosBridge(Node):
@@ -99,6 +188,7 @@ class IsaacSimRosBridge(Node):
         self.oakd_pose = _deep_get(config, "oakd.pose", {})
         self.rgb_data = self._build_rgb_pattern()
         self.depth_data = self._build_depth_pattern()
+        self.render_client = IsaacRenderClient(config)
 
         qos_depth = 10
         self.clock_pub = self.create_publisher(Clock, "/clock", qos_depth)
@@ -170,7 +260,8 @@ class IsaacSimRosBridge(Node):
             self._publish_clock(stamp)
             self._publish_tf(stamp)
             self._publish_odom(stamp)
-            self._publish_camera(stamp)
+            frame = self.render_client.request_frame(self.state, self.sim_time)
+            self._publish_camera(stamp, frame)
         except Exception as exc:
             if "context is invalid" not in str(exc):
                 raise
@@ -247,42 +338,56 @@ class IsaacSimRosBridge(Node):
         msg.twist.twist.angular.z = self.state.wz
         self.odom_pub.publish(msg)
 
-    def _publish_camera(self, stamp: Any) -> None:
-        left = self._image(stamp, self.left_frame, "rgb8", self.width * 3, self.rgb_data)
-        right = self._image(stamp, self.right_frame, "rgb8", self.width * 3, self.rgb_data)
+    def _publish_camera(self, stamp: Any, frame: RenderFrame | None) -> None:
+        width = frame.width if frame else self.width
+        height = frame.height if frame else self.height
+        left_data = frame.left_rgb if frame else self.rgb_data
+        right_data = frame.right_rgb if frame else self.rgb_data
+        depth_data = frame.depth_32fc1 if frame else self.depth_data
+        left = self._image(stamp, self.left_frame, width, height, "rgb8", width * 3, left_data)
+        right = self._image(stamp, self.right_frame, width, height, "rgb8", width * 3, right_data)
         depth = self._image(
-            stamp, self.oakd_optical_frame, "32FC1", self.width * 4, self.depth_data
+            stamp, self.oakd_optical_frame, width, height, "32FC1", width * 4, depth_data
         )
         self.left_image_pub.publish(left)
         self.right_image_pub.publish(right)
         self.depth_image_pub.publish(depth)
-        self.left_info_pub.publish(self._camera_info(stamp, self.left_frame))
-        self.right_info_pub.publish(self._camera_info(stamp, self.right_frame))
-        self.depth_info_pub.publish(self._camera_info(stamp, self.oakd_optical_frame))
+        self.left_info_pub.publish(self._camera_info(stamp, self.left_frame, width, height))
+        self.right_info_pub.publish(self._camera_info(stamp, self.right_frame, width, height))
+        self.depth_info_pub.publish(
+            self._camera_info(stamp, self.oakd_optical_frame, width, height)
+        )
 
     def _image(
-        self, stamp: Any, frame_id: str, encoding: str, step: int, data: bytearray
+        self,
+        stamp: Any,
+        frame_id: str,
+        width: int,
+        height: int,
+        encoding: str,
+        step: int,
+        data: bytearray,
     ) -> Image:
         msg = Image()
         msg.header.stamp = stamp
         msg.header.frame_id = frame_id
-        msg.height = self.height
-        msg.width = self.width
+        msg.height = height
+        msg.width = width
         msg.encoding = encoding
         msg.is_bigendian = 0
         msg.step = step
         msg.data = data
         return msg
 
-    def _camera_info(self, stamp: Any, frame_id: str) -> CameraInfo:
+    def _camera_info(self, stamp: Any, frame_id: str, width: int, height: int) -> CameraInfo:
         msg = CameraInfo()
         msg.header.stamp = stamp
         msg.header.frame_id = frame_id
-        msg.height = self.height
-        msg.width = self.width
+        msg.height = height
+        msg.width = width
         fx = fy = 420.0
-        cx = self.width / 2.0
-        cy = self.height / 2.0
+        cx = width / 2.0
+        cy = height / 2.0
         msg.k = [fx, 0.0, cx, 0.0, fy, cy, 0.0, 0.0, 1.0]
         msg.p = [fx, 0.0, cx, 0.0, 0.0, fy, cy, 0.0, 0.0, 0.0, 1.0, 0.0]
         msg.distortion_model = "plumb_bob"

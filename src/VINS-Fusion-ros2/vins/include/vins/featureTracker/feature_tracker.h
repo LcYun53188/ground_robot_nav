@@ -44,6 +44,7 @@ class FeatureTracker {
  public:
   FeatureTracker();
   void setOptions(std::shared_ptr<VINSOptions> options_);
+  void resetState();
   map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> trackImage(
       double _cur_time, const cv::Mat &_img, const cv::Mat &_img1 = cv::Mat());
   void setMask();
@@ -86,6 +87,7 @@ class FeatureTracker {
   map<int, cv::Point2f> cur_un_right_pts_map, prev_un_right_pts_map;
   map<int, cv::Point2f> prevLeftPtsMap;
   vector<camodocal::CameraPtr> m_camera;
+  double last_log_time = 0.0;
   double cur_time;
   double prev_time;
   bool stereo_cam;

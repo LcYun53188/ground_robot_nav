@@ -20,7 +20,7 @@ OAK-D 为第一版核心传感器，使用 Isaac ROS Visual SLAM / cuVSLAM 提�
 - [docs/OAKD_VISUAL_SLAM_RVIZ.md](docs/OAKD_VISUAL_SLAM_RVIZ.md)：OAK-D + Visual SLAM + RViz 硬件验证。
 - [docs/NVIDIA_3D_NAV_ARCHITECTURE.md](docs/NVIDIA_3D_NAV_ARCHITECTURE.md)：NVIDIA 3D 导航架构说明。
 - [docs/NVIDIA_3D_NAV_PROJECT_PLAN.md](docs/NVIDIA_3D_NAV_PROJECT_PLAN.md)：分阶段迁移计划。
-- [docs/ISAAC_SIM_SIMULATION.md](docs/ISAAC_SIM_SIMULATION.md)：Isaac Sim 最小仿真验证。
+- [docs/ISAAC_SIM_SIMULATION.md](docs/ISAAC_SIM_SIMULATION.md)：Isaac Sim 4.5 / 轻量仿真验证。
 
 ## 环境配置
 
@@ -308,7 +308,7 @@ odom
 - `nvidia_3d_nav.launch.py` 已作为 OAK-D + Visual SLAM + nvblox + Nav2 的主入口。
 - Nav2 配置已转向 MPPI 控制器方向。
 - Isaac Sim 最小验证路径已整理在 `simulation/` 和 [docs/ISAAC_SIM_SIMULATION.md](docs/ISAAC_SIM_SIMULATION.md)。
-- VINS-Fusion 旧源码仍保留在 `src/VINS-Fusion-ros2`，但带 `COLCON_IGNORE`，默认不构建、不作为当前可用定位链路。
+- VINS-Fusion 可作为实验兼容入口构建和启动，但实测 OAK-D 链路仍会触发异常速度/漂移保护，不作为当前可用定位链路。
 
 当前重点：
 
@@ -366,7 +366,7 @@ RViz 默认只打开局部地图层：
 - `src/isaac_ros_visual_slam`：Isaac ROS Visual SLAM / cuVSLAM 上游代码。
 - `src/isaac_ros_nvblox`：nvblox 3D 建图和 Nav2 costmap 插件相关代码。
 - `src/navigation2`：Nav2 上游代码。
-- `src/VINS-Fusion-ros2`：旧 VINS 残留源码，当前由 `isaac_ros_visual_slam` 替代；默认 `COLCON_IGNORE`，不要作为当前导航入口使用。
+- `src/VINS-Fusion-ros2`：旧 VINS 残留源码，当前由 `isaac_ros_visual_slam` 替代；可实验启动，但不要作为当前导航入口使用。
 - `patches/`：对 vendor / upstream 代码的本地补丁。
 - `simulation/`：Isaac Sim 最小仿真验证入口。
 
@@ -386,11 +386,25 @@ RViz 默认只打开局部地图层：
 
 ### VINS 链路是否还能使用
 
-当前不建议使用。`src/VINS-Fusion-ros2` 和 `src/imu_fusion` 仍在仓库中，但都带
-`COLCON_IGNORE`，默认不会构建。旧 `scripts/run_nav_stack.sh` 仍残留 `vio` /
-`enable_vins` 逻辑，但它走的是旧 `uav_bringup nav_stack.launch.py` 入口，不是当前
-地面 NVIDIA 3D 主线。若要恢复 VINS，需要单独移除 `COLCON_IGNORE`、修复构建依赖、
-重新校准 OAK-D 内参/外参和时间戳，并编写新的地面专用 launch。
+当前不建议作为导航定位源使用。`src/VINS-Fusion-ros2` 已能实验构建并启动
+`oakd_vins.launch.py`，但 OAK-D 实测仍会出现异常速度/漂移；代码中已恢复基础
+failure detection，异常状态会 reset 并停止继续发布错误 `/vio/odometry`。
+
+已修正的兼容项：
+
+- VINS 的 OAK-D 左右目内参已对齐当前 `/oakd/left/camera_info` 和
+  `/oakd/right/camera_info`。
+- `body_T_cam0/body_T_cam1` 已对齐实时
+  `oakd_imu_link -> oakd_left/right_camera_optical_frame` TF。
+- VINS IMU/image 订阅使用 sensor-data QoS，避免收不到 OAK-D best-effort 数据。
+
+仍未解决的问题：
+
+- 当前 VINS 视觉跟踪会反复出现 `unstable tracking`。
+- VIO 初始化后会触发异常速度保护，例如 `velocity too large`，因此不会放行
+  `/vio/odometry` 给导航链路。
+- 若要继续恢复 VINS，需要单独做 OAK-D 图像质量/特征跟踪、IMU 轴约定、时间同步
+  和 VINS 参数的专项调试。
 
 ### RViz 中姿态方向看起来反了
 

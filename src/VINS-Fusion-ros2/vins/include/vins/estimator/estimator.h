@@ -160,6 +160,7 @@ class Estimator {
   Timestamp previousTimestamp = -1;
   Timestamp currentTimestamp = 0;
   Timestamp initialTimestamp = 0;
+  Timestamp lastPushedImageTimestamp = -1;
 
   bool openExEstimation;
   SolverState solver_flag;

@@ -38,6 +38,7 @@ class VinsEstimator : public rclcpp::Node {
   void publishOdometry();
   void publishImage();
   void publishKeyFrameData();
+  IMUData convertImuAxes(const IMUData& imu) const;
 
  private:
   std::shared_ptr<Estimator> estimator_;

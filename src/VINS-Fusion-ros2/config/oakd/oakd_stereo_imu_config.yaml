@@ -1,10 +1,11 @@
 %YAML:1.0
 
 #common parameters
-imu: 1         
+imu: 1
 num_of_cam: 2  
 
 imu_topic: "/oakd/imu/raw"
+imu_axis_mode: "oakd_raw_to_ros"
 image0_topic: "/oakd/left/image_raw"
 image1_topic: "/oakd/right/image_raw"
 output_path: "/home/nuc/output/"
@@ -22,20 +23,22 @@ use_gpu_ceres   : 0
 # OAK-D internal IMU-camera extrinsics for VINS-Fusion.
 #
 # This block configures the transform between the VINS body frame and the
-# OAK-D camera frames. In this project the VINS body frame is oakd_imu_link.
+# OAK-D camera frames. VINS consumes /oakd/imu/raw but remaps raw OAK-D IMU axes
+# internally with imu_axis_mode=oakd_raw_to_ros, so the VINS body frame is
+# ROS-style: X forward, Y left, Z up.
 #
 # Important distinction:
 #   - base_link -> oakd_imu_link:
-#       Whole OAK-D mounting pose on the aircraft body. Configure this in
-#       uav_bringup/launch/ekf_launch.py.
+#       Whole OAK-D mounting pose on the ground robot body. Configure this in
+#       the active omni_bringup ground launch entry.
 #   - oakd_imu_link -> oakd_camera_optical_frame:
 #       ROS TF for the OAK-D internal IMU/body frame to optical camera frame.
 #       Configure this in oakd_perception/launch/oakd_unified.launch.py.
 #   - body_T_cam0/body_T_cam1 below:
 #       VINS-Fusion internal body-to-left/right-camera extrinsics.
 #
-# Do not use body_T_cam0/body_T_cam1 as the aircraft mounting lever arm.
-# If the OAK-D is physically moved on the UAV, update base_link -> oakd_imu_link.
+# Do not use body_T_cam0/body_T_cam1 as the robot mounting lever arm.
+# If the OAK-D is physically moved on the robot, update base_link -> oakd_imu_link.
 # If the OAK-D internal IMU-camera calibration changes, update this block and
 # keep oakd_unified.launch.py's oakd_imu_link -> oakd_camera_optical_frame TF
 # consistent with it.
@@ -49,39 +52,43 @@ use_gpu_ceres   : 0
 estimate_extrinsic: 0
 
 body_T_cam0: !!opencv-matrix
-   # Transform from VINS body frame (oakd_imu_link) to left camera frame.
+   # Transform from left camera optical frame to VINS body frame.
    # rows/cols/dt follow OpenCV matrix YAML format.
-   # The top-left 3x3 block is rotation; the last column is translation in meters.
+   # The top-left 3x3 block is rotation; the last column is the left camera
+   # origin in the VINS body frame, in meters.
    rows: 4
    cols: 4
    dt: d
-   data: [ 0., 1.,  0., 0.,
-           1., 0.,  0., 0.,
-           0., 0., -1., 0.,
+   data: [ 0.,  0., 1., 0.,
+          -1.,  0., 0., 0.039814,
+           0., -1., 0., 0.03185,
            0., 0., 0., 1. ]
 
 body_T_cam1: !!opencv-matrix
-   # Transform from VINS body frame (oakd_imu_link) to right camera frame.
-   # The translation should be consistent with the stereo baseline; this current
-   # config uses about 0.075 m between the left and right camera frames.
+   # Transform from right camera optical frame to VINS body frame.
+   # The body-frame Y difference between cam0 and cam1 is the 0.075 m stereo
+   # baseline.
    rows: 4
    cols: 4
    dt: d
-   data: [ 0., 1.,  0., 0.,
-           1., 0.,  0., 0.075,
-           0., 0., -1., 0.,
+   data: [ 0.,  0., 1., 0.,
+          -1.,  0., 0., -0.035186,
+           0., -1., 0., 0.03185,
            0., 0., 0., 1. ]
 
 #Multiple thread support
 multiple_thread: 1
 
 #feature traker paprameters
-max_cnt: 150            # max feature number in feature tracking
-min_dist: 30            # min distance between two features 
-freq: 10                # frequence (Hz) of publish tracking result. At least 10Hz for good estimation. If set 0, the frequence will be same as raw image 
+max_cnt: 120            # max feature number in feature tracking
+min_dist: 35            # min distance between two features
+freq: 15                # target feature-processing rate; 0 means process every image
 F_threshold: 1.0        # ransac threshold (pixel)
 show_track: 1           # publish tracking image as topic
 flow_back: 1            # perform forward and backward optical flow to improve feature tracking accuracy
+stereo_max_y_diff_px: 2.0       # OAK-D rectified stereo epipolar gate
+stereo_min_disparity_px: 1.0    # right image should be to the left of left image
+stereo_max_disparity_px: 180.0  # reject near-field/outlier LK matches
 
 #optimization parameters
 max_solver_time: 0.04  # max solver itration time (ms), to guarantee real time

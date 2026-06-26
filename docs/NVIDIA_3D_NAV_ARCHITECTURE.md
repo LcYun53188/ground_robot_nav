@@ -243,7 +243,7 @@ CameraInfo 稳定。主闭环先使用 OAK-D 原生 depth 跑通。
 ## 不在当前核心路径中的内容
 
 - `FAST_LIO_ROS2`：第一版 NVIDIA 架构不使用。
-- `VINS-Fusion-ros2`：由 `isaac_ros_visual_slam` 替代。源码目录仍保留，但带 `COLCON_IGNORE`，默认不构建，也不作为当前可用定位链路。
+- `VINS-Fusion-ros2`：由 `isaac_ros_visual_slam` 替代。源码目录仍保留，可实验构建和启动，但实测 OAK-D 链路仍会触发异常速度/漂移保护，不作为当前可用定位链路。
 - `nav_mapping/local_map_builder`：由 nvblox 替代。
 - 自研 SE(2) DWA：由 Nav2 controller server 和 MPPI 替代。
 - MID360 主定位：不进入第一版主链路。
@@ -256,16 +256,20 @@ CameraInfo 稳定。主闭环先使用 OAK-D 原生 depth 跑通。
 - `src/imu_fusion`
 - 旧 `scripts/run_nav_stack.sh` 中的 `vio` / `enable_vins` 逻辑
 
-这些内容只表示历史源码和旧入口残留，不表示当前 VINS 链路可直接使用。原因：
+这些内容只表示历史源码和旧入口残留，不表示当前 VINS 链路可直接作为导航定位使用。当前状态：
 
-- `src/VINS-Fusion-ros2/COLCON_IGNORE` 使 VINS 默认不参与 `colcon build`。
 - `src/imu_fusion/COLCON_IGNORE` 使旧 IMU fusion 辅助链路默认不构建。
 - 旧 `run_nav_stack.sh` 启动的是 `uav_bringup nav_stack.launch.py`，不是当前地面
   `nvidia_3d_nav.launch.py` 主线。
-- 旧 VINS OAK-D 配置需要重新核对 OAK-D 内参、双目外参、IMU 外参和时间戳策略。
+- `src/VINS-Fusion-ros2` 已能构建并启动 `oakd_vins.launch.py`。
+- OAK-D 左右目内参、`body_T_cam0/body_T_cam1` 和 sensor-data QoS 已按当前
+  OAK-D 数据流做过兼容修正。
+- 实测仍会出现 `unstable tracking` 和异常速度，failure detection 会 reset 并停止
+  继续发布错误 `/vio/odometry`。
 
-如果后续确实需要恢复 VINS，必须作为独立任务处理：移除 `COLCON_IGNORE`、修复依赖、
-重新标定、编写地面专用 launch，并重新验证 `/vio/odometry`、TF 和 Nav2 接入。
+如果后续确实需要恢复 VINS，必须作为独立任务处理：继续排查 OAK-D 图像质量、
+特征跟踪、IMU 轴约定、时间同步和 VINS 参数，并重新验证 `/vio/odometry`、TF 和
+Nav2 接入。
 
 ## 风险边界
 
