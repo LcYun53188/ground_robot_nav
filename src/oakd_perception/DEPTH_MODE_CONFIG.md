@@ -45,7 +45,7 @@
 
 ## 使用方法
 
-> 生产/日常运行建议通过根目录 [run_nav_stack.sh](../../scripts/run_nav_stack.sh) 启动导航栈；单独调试 OAK-D 时使用本包 `scripts/` 下的场景预设。下面命令主要用于单独测试深度链路或验证参数。
+> 生产/日常运行建议通过根目录 `./scripts/with_venv.sh ros2 launch omni_bringup nvidia_3d_nav.launch.py` 启动导航栈；单独调试 OAK-D 时使用本包 `scripts/` 下的场景预设。下面命令主要用于单独测试深度链路或验证参数。
 
 ### 方法 1: 命令行参数运行
 

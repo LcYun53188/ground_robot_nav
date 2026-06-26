@@ -235,12 +235,12 @@ filtered, stats = filter.filter_adaptive(points)
 ../../scripts/with_venv.sh rviz2
 ```
 
-> 说明：本包 `scripts/run_oakd_*.sh` 负责 OAK-D 场景预设；完整导航栈由根目录 `scripts/run_nav_stack.sh` 统一编排。
+> 说明：本包 `scripts/run_oakd_*.sh` 负责 OAK-D 场景预设；完整导航栈使用根目录 `./scripts/with_venv.sh ros2 launch omni_bringup nvidia_3d_nav.launch.py` 启动。
 
 ### 方式2：一键启动完整系统
 
 ```bash
-../../scripts/run_nav_stack.sh --odom-source vio --pointcloud-source oakd
+../../scripts/with_venv.sh ros2 launch omni_bringup nvidia_3d_nav.launch.py
 ```
 
 ### 方式3：独立测试单节点

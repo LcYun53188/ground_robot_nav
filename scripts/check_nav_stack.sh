@@ -10,7 +10,6 @@ if [[ -f "$WS_DIR/scripts/nav_launch.local.env" ]]; then
 fi
 
 TIMEOUT_SEC="${DEBUG_TIMEOUT_SEC:-4}"
-CHECK_PX4="${CHECK_NAV_PX4:-false}"
 CHECK_MID360="${CHECK_NAV_MID360:-false}"
 
 usage() {
@@ -22,9 +21,6 @@ Defaults are read from scripts/nav_launch.env and optional
 scripts/nav_launch.local.env. Command-line options override variables.
 
 Options:
-  --px4
-      Also check PX4 bridge input/output topics.
-
   --mid360
       Also check MID360 and LIO topics.
 
@@ -47,10 +43,6 @@ require_value() {
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --px4)
-      CHECK_PX4="true"
-      shift
-      ;;
     --mid360)
       CHECK_MID360="true"
       shift
@@ -110,15 +102,6 @@ if [[ "$CHECK_MID360" == "true" ]]; then
   optional_topic /lio/odometry
   check_topic_hz /mid360/points mid360_points
   check_tf base_link mid360_link
-fi
-
-if [[ "$CHECK_PX4" == "true" ]]; then
-  print_header "PX4 Bridge"
-  require_topic /px4/attitude
-  require_topic /px4/imu
-  require_topic /fmu/in/offboard_control_mode
-  require_topic /fmu/in/trajectory_setpoint
-  require_topic /fmu/in/vehicle_command
 fi
 
 finish_report

@@ -109,11 +109,6 @@ TOPICS=(
   /nav/cmd_vel
   /nav/emergency
   /nav/safety_status
-  /px4/attitude
-  /px4/imu
-  /fmu/in/offboard_control_mode
-  /fmu/in/trajectory_setpoint
-  /fmu/in/vehicle_command
 )
 
 if [[ "$INCLUDE_OFFLINE_MAP" == "true" ]]; then

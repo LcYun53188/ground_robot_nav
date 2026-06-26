@@ -58,7 +58,6 @@ exec env \
     opennav_docking \
     opennav_docking_bt \
     opennav_docking_core \
-    px4_msgs \
   --cmake-args \
     -DBUILD_TESTING=OFF \
     -DCMAKE_CUDA_COMPILER="$CUDA_HOME/bin/nvcc" \

@@ -254,13 +254,12 @@ CameraInfo 稳定。主闭环先使用 OAK-D 原生 depth 跑通。
 
 - `src/VINS-Fusion-ros2`
 - `src/imu_fusion`
-- 旧 `scripts/run_nav_stack.sh` 中的 `vio` / `enable_vins` 逻辑
 
 这些内容只表示历史源码和旧入口残留，不表示当前 VINS 链路可直接作为导航定位使用。当前状态：
 
 - `src/imu_fusion/COLCON_IGNORE` 使旧 IMU fusion 辅助链路默认不构建。
-- 旧 `run_nav_stack.sh` 启动的是 `uav_bringup nav_stack.launch.py`，不是当前地面
-  `nvidia_3d_nav.launch.py` 主线。
+- 旧混合导航入口已从地面仓库移除。当前只维护 `nvidia_3d_nav.launch.py`
+  主线。
 - `src/VINS-Fusion-ros2` 已能构建并启动 `oakd_vins.launch.py`。
 - OAK-D 左右目内参、`body_T_cam0/body_T_cam1` 和 sensor-data QoS 已按当前
   OAK-D 数据流做过兼容修正。

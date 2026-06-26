@@ -381,8 +381,8 @@ src/oakd_perception/scripts/run_oakd_balance.sh
   frame_id_0:=oakd_imu_link \
   parent_frame:=map
 
-# 一键完整系统
-./scripts/run_nav_stack.sh --odom-source vio --pointcloud-source oakd
+# 当前地面导航主入口
+./scripts/with_venv.sh ros2 launch omni_bringup nvidia_3d_nav.launch.py
 ```
 
 ## 总结

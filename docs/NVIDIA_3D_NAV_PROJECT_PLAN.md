@@ -80,7 +80,7 @@ nvblox 地图切片
 
 - `omni_bringup` 可编译。
 - launch 文件 Python 语法检查通过。
-- 新架构入口独立于旧 VINS / UAV 入口。
+- 新架构入口独立于旧 VINS 入口。
 
 ### 阶段 2：OAK-D 数据完整性
 

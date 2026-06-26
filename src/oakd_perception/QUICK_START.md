@@ -1,7 +1,7 @@
 # 快速参考（已整合）
 
 📌 **主入口：** [README.md](README.md)
-📌 **导航栈统一启动：** [run_nav_stack.sh](../../scripts/run_nav_stack.sh)
+📌 **地面导航主入口：** `../../scripts/with_venv.sh ros2 launch omni_bringup nvidia_3d_nav.launch.py`
 📌 **OAK-D 场景脚本：** [scripts/README.md](scripts/README.md)
 
 ---

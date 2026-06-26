@@ -30,8 +30,8 @@ cd /home/nuc/Program/ground_robot_nav_ws
   --ros-args \
   --params-file src/oakd_perception/config/imu_default.yaml
 
-# 方式3: 使用导航栈统一启动 raw + fusion + TF
-./scripts/run_nav_stack.sh --odom-source vio --pointcloud-source oakd
+# 方式3: 使用当前地面导航主入口启动 OAK-D + VIO + 建图导航
+./scripts/with_venv.sh ros2 launch omni_bringup nvidia_3d_nav.launch.py
 ```
 
 ### 2.1 运行 IMU 融合和 TF 广播器
@@ -116,7 +116,7 @@ imu.angular_velocity_covariance       # 陀螺仪协方差 (3x3)
 
 然后运行：
 ```bash
-./scripts/run_nav_stack.sh --odom-source vio --pointcloud-source oakd
+./scripts/with_venv.sh ros2 launch omni_bringup nvidia_3d_nav.launch.py
 ```
 
 ### 使用两个终端
