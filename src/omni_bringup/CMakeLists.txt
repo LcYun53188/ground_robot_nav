@@ -7,8 +7,13 @@ endif()
 
 find_package(ament_cmake REQUIRED)
 
-install(DIRECTORY launch config rviz
+install(DIRECTORY launch config rviz gazebo
   DESTINATION share/${PROJECT_NAME}
+)
+
+install(PROGRAMS
+  scripts/gazebo_auto_goals.py
+  DESTINATION lib/${PROJECT_NAME}
 )
 
 if(BUILD_TESTING)
