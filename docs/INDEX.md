@@ -41,6 +41,9 @@ Gazebo Harmonic 仿真入口：
 
 ```bash
 ./simulation/scripts/run_gazebo_harmonic_nav.sh
+
+./simulation/scripts/run_gazebo_harmonic_nav.sh launch_auto_goals:=false
+
 ```
 
 Isaac Sim 最小仿真入口：

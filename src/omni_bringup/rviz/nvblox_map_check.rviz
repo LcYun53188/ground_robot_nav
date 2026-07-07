@@ -200,6 +200,50 @@ Visualization Manager:
             Reliability Policy: Reliable
             Value: /visual_slam/tracking/vo_path
           Value: false
+        - Class: rviz_default_plugins/Path
+          Alpha: 1
+          Buffer Length: 1
+          Color: 46; 220; 120
+          Enabled: true
+          Line Style: Lines
+          Line Width: 0.04
+          Name: Global Plan
+          Offset:
+            X: 0
+            Y: 0
+            Z: 0
+          Pose Color: 46; 220; 120
+          Pose Style: None
+          Radius: 0.03
+          Topic:
+            Depth: 5
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+            Value: /plan
+          Value: true
+        - Class: rviz_default_plugins/Path
+          Alpha: 1
+          Buffer Length: 1
+          Color: 0; 120; 255
+          Enabled: true
+          Line Style: Lines
+          Line Width: 0.03
+          Name: Local Plan
+          Offset:
+            X: 0
+            Y: 0
+            Z: 0
+          Pose Color: 0; 120; 255
+          Pose Style: None
+          Radius: 0.03
+          Topic:
+            Depth: 5
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+            Value: /local_plan
+          Value: true
       Enabled: true
       Name: Trajectory
     - Class: rviz_default_plugins/Polygon
@@ -239,6 +283,23 @@ Visualization Manager:
     - Class: rviz_default_plugins/Select
     - Class: rviz_default_plugins/FocusCamera
     - Class: rviz_default_plugins/Measure
+    - Class: rviz_default_plugins/SetInitialPose
+      Covariance x: 0.25
+      Covariance y: 0.25
+      Covariance yaw: 0.06853891909122467
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /initialpose
+    - Class: rviz_default_plugins/SetGoal
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /goal_pose
     - Class: nav2_rviz_plugins/GoalTool
   Transformation:
     Current:
