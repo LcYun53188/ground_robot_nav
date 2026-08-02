@@ -148,31 +148,26 @@
         <inertial>
           <mass>18.0</mass>
           <inertia>
-            <ixx>0.36</ixx>
-            <iyy>0.42</iyy>
-            <izz>0.60</izz>
+            <ixx>0.176904</ixx>
+            <iyy>0.176904</iyy>
+            <izz>0.2916</izz>
           </inertia>
         </inertial>
         <collision name="collision">
-          <geometry><box><size>0.55 0.45 0.18</size></box></geometry>
+          <geometry><cylinder><radius>0.18</radius><length>0.144</length></cylinder></geometry>
         </collision>
         <visual name="body">
-          <geometry><box><size>0.55 0.45 0.18</size></box></geometry>
+          <geometry><cylinder><radius>0.18</radius><length>0.144</length></cylinder></geometry>
           <material>
-            <ambient>0.1 0.22 0.28 1</ambient>
-            <diffuse>0.1 0.22 0.28 1</diffuse>
+            <ambient>0.04 0.18 0.55 1</ambient>
+            <diffuse>0.05 0.25 0.85 1</diffuse>
           </material>
         </visual>
-
-        <sensor name="oakd_imu" type="imu">
-          <always_on>true</always_on>
-          <update_rate>200</update_rate>
-          <topic>/oakd/imu/raw</topic>
-        </sensor>
       </link>
 
-      <link name="oakd_camera_optical_frame">
-        <pose>0.18 0 0.22 0 0 0</pose>
+      <!-- Gazebo camera +X faces forward and pitches 10 degrees downward. -->
+      <link name="oakd_camera_link">
+        <pose>0.18 0 0.22 0 0.1745329252 0</pose>
         <inertial>
           <mass>0.1</mass>
           <inertia>
@@ -184,10 +179,32 @@
         <visual name="camera_body">
           <geometry><box><size>0.07 0.10 0.035</size></box></geometry>
           <material>
-            <ambient>0.02 0.02 0.025 1</ambient>
-            <diffuse>0.02 0.02 0.025 1</diffuse>
+            <ambient>0.55 0.15 0.01 1</ambient>
+            <diffuse>0.95 0.32 0.03 1</diffuse>
           </material>
         </visual>
+        <visual name="left_lens">
+          <pose>0.038 0.028 0 0 0 0</pose>
+          <geometry><box><size>0.008 0.022 0.022</size></box></geometry>
+          <material>
+            <ambient>0.01 0.01 0.015 1</ambient>
+            <diffuse>0.01 0.01 0.015 1</diffuse>
+          </material>
+        </visual>
+        <visual name="right_lens">
+          <pose>0.038 -0.028 0 0 0 0</pose>
+          <geometry><box><size>0.008 0.022 0.022</size></box></geometry>
+          <material>
+            <ambient>0.01 0.01 0.015 1</ambient>
+            <diffuse>0.01 0.01 0.015 1</diffuse>
+          </material>
+        </visual>
+        <sensor name="oakd_imu" type="imu">
+          <always_on>true</always_on>
+          <update_rate>200</update_rate>
+          <topic>/oakd/imu/raw</topic>
+          <gz_frame_id>oakd_imu_link</gz_frame_id>
+        </sensor>
         <sensor name="oakd_rgbd" type="rgbd_camera">
           <always_on>true</always_on>
           <update_rate>15</update_rate>
@@ -209,7 +226,73 @@
 
       <joint name="oakd_fixed_joint" type="fixed">
         <parent>base_link</parent>
-        <child>oakd_camera_optical_frame</child>
+        <child>oakd_camera_link</child>
+      </joint>
+
+      <!-- Raster GPU-lidar approximation of a Livox MID360. It follows the
+           reference mounting pose and scan envelope, but does not emulate
+           Livox non-repetitive sampling or per-point timestamps. It is placed
+           0.16 m from the chassis center at the front-right 45-degree point. -->
+      <link name="mid360_link">
+        <pose relative_to="base_link">0.113137085 -0.113137085 0.18 0.5235987756 0 0.7853981634</pose>
+        <inertial>
+          <mass>0.265</mass>
+          <inertia>
+            <ixx>0.00035</ixx>
+            <iyy>0.00035</iyy>
+            <izz>0.00035</izz>
+          </inertia>
+        </inertial>
+        <visual name="body">
+          <geometry><cylinder><radius>0.04</radius><length>0.04</length></cylinder></geometry>
+          <material>
+            <ambient>0.02 0.38 0.08 1</ambient>
+            <diffuse>0.04 0.75 0.16 1</diffuse>
+          </material>
+        </visual>
+        <sensor name="mid360_imu" type="imu">
+          <always_on>true</always_on>
+          <update_rate>200</update_rate>
+          <topic>/mid360/imu</topic>
+          <gz_frame_id>mid360_link</gz_frame_id>
+        </sensor>
+        <sensor name="mid360_lidar" type="gpu_lidar">
+          <always_on>true</always_on>
+          <visualize>false</visualize>
+          <update_rate>20</update_rate>
+          <topic>/mid360</topic>
+          <gz_frame_id>mid360_link</gz_frame_id>
+          <lidar>
+            <scan>
+              <horizontal>
+                <samples>1875</samples>
+                <resolution>1</resolution>
+                <min_angle>0</min_angle>
+                <max_angle>6.2831853072</max_angle>
+              </horizontal>
+              <vertical>
+                <samples>32</samples>
+                <resolution>1</resolution>
+                <min_angle>-0.1221730476</min_angle>
+                <max_angle>0.9075712110</max_angle>
+              </vertical>
+            </scan>
+            <range>
+              <min>0.10</min>
+              <max>40.0</max>
+              <resolution>0.01</resolution>
+            </range>
+            <noise>
+              <type>gaussian</type>
+              <mean>0</mean>
+              <stddev>0.01</stddev>
+            </noise>
+          </lidar>
+        </sensor>
+      </link>
+      <joint name="mid360_fixed_joint" type="fixed">
+        <parent>base_link</parent>
+        <child>mid360_link</child>
       </joint>
 
       <link name="front_left_wheel">
@@ -282,13 +365,25 @@
         <wheelbase>0.38</wheelbase>
         <wheel_radius>0.07</wheel_radius>
         <topic>/cmd_vel</topic>
-        <odom_topic>/visual_slam/tracking/odometry</odom_topic>
-        <tf_topic>/tf</tf_topic>
+        <!-- Keep the drive plugin's wheel-integrated odometry off the Nav2
+             odom topic. When the chassis is physically blocked, wheel odom can
+             keep advancing even though the model pose does not. -->
+        <odom_topic>/model/omni_base/wheel_odometry</odom_topic>
+        <tf_topic>/model/omni_base/wheel_tf</tf_topic>
         <frame_id>odom</frame_id>
         <child_frame_id>base_link</child_frame_id>
         <odom_publish_frequency>50</odom_publish_frequency>
         <min_acceleration>-1.5</min_acceleration>
         <max_acceleration>1.5</max_acceleration>
+      </plugin>
+
+      <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">
+        <odom_frame>odom</odom_frame>
+        <robot_base_frame>base_link</robot_base_frame>
+        <dimensions>2</dimensions>
+        <odom_topic>/visual_slam/tracking/odometry</odom_topic>
+        <tf_topic>/tf</tf_topic>
+        <odom_publish_frequency>50</odom_publish_frequency>
       </plugin>
 
       <plugin filename="gz-sim-joint-state-publisher-system" name="gz::sim::systems::JointStatePublisher">

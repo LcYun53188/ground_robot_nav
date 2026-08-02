@@ -1,18 +1,40 @@
 """Gazebo Harmonic + ros_gz simulation for the ground omni-wheel stack."""
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import (
+    AppendEnvironmentVariable,
+    DeclareLaunchArgument,
+    IncludeLaunchDescription,
+)
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import (
+    AndSubstitution,
+    LaunchConfiguration,
+    PathJoinSubstitution,
+    PythonExpression,
+)
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
+    arena = LaunchConfiguration("arena")
     world = LaunchConfiguration("world")
     bridge_config = LaunchConfiguration("bridge_config")
+    oakd_bridge_config = LaunchConfiguration("oakd_bridge_config")
+    mid360_bridge_config = LaunchConfiguration("mid360_bridge_config")
+    launch_bridge = LaunchConfiguration("launch_bridge")
+    launch_oakd = LaunchConfiguration("launch_oakd")
+    launch_mid360 = LaunchConfiguration("launch_mid360")
+
+    gazebo_models_path = PathJoinSubstitution(
+        [FindPackageShare("omni_bringup"), "gazebo", "models"]
+    )
+    register_gazebo_models = AppendEnvironmentVariable(
+        "GZ_SIM_RESOURCE_PATH", gazebo_models_path
+    )
 
     gazebo = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -36,7 +58,35 @@ def generate_launch_description():
                 "use_sim_time": True,
             }
         ],
-        condition=IfCondition(LaunchConfiguration("launch_bridge")),
+        condition=IfCondition(launch_bridge),
+    )
+
+    oakd_bridge = Node(
+        package="ros_gz_bridge",
+        executable="parameter_bridge",
+        name="omni_gazebo_oakd_bridge",
+        output="screen",
+        parameters=[
+            {
+                "config_file": oakd_bridge_config,
+                "use_sim_time": True,
+            }
+        ],
+        condition=IfCondition(AndSubstitution(launch_bridge, launch_oakd)),
+    )
+
+    mid360_bridge = Node(
+        package="ros_gz_bridge",
+        executable="parameter_bridge",
+        name="omni_gazebo_mid360_bridge",
+        output="screen",
+        parameters=[
+            {
+                "config_file": mid360_bridge_config,
+                "use_sim_time": True,
+            }
+        ],
+        condition=IfCondition(AndSubstitution(launch_bridge, launch_mid360)),
     )
 
     color_image_bridge = Node(
@@ -46,7 +96,7 @@ def generate_launch_description():
         output="screen",
         parameters=[{"use_sim_time": True}],
         arguments=["/rgbd_camera/image"],
-        condition=IfCondition(LaunchConfiguration("launch_bridge")),
+        condition=IfCondition(AndSubstitution(launch_bridge, launch_oakd)),
     )
 
     depth_image_bridge = Node(
@@ -56,7 +106,7 @@ def generate_launch_description():
         output="screen",
         parameters=[{"use_sim_time": True}],
         arguments=["/rgbd_camera/depth_image"],
-        condition=IfCondition(LaunchConfiguration("launch_bridge")),
+        condition=IfCondition(AndSubstitution(launch_bridge, launch_oakd)),
     )
 
     gazebo_camera_tf = Node(
@@ -65,17 +115,88 @@ def generate_launch_description():
         name="gazebo_oakd_camera_static_tf",
         output="screen",
         arguments=[
+            "--x",
             "0.18",
+            "--y",
             "0.0",
+            "--z",
             "0.22",
-            "-1.57079632679",
+            "--yaw",
             "0.0",
-            "-1.57079632679",
+            "--pitch",
+            "0.1745329252",
+            "--roll",
+            "0.0",
+            "--frame-id",
             "base_link",
+            "--child-frame-id",
+            "oakd_camera_link",
+        ],
+        parameters=[{"use_sim_time": True}],
+        condition=IfCondition(AndSubstitution(launch_bridge, launch_oakd)),
+    )
+
+    gazebo_camera_optical_tf = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="gazebo_oakd_optical_static_tf",
+        output="screen",
+        arguments=[
+            "--yaw",
+            "-1.57079632679",
+            "--pitch",
+            "0.0",
+            "--roll",
+            "-1.57079632679",
+            "--frame-id",
+            "oakd_camera_link",
+            "--child-frame-id",
             "oakd_camera_optical_frame",
         ],
         parameters=[{"use_sim_time": True}],
-        condition=IfCondition(LaunchConfiguration("launch_navigation")),
+        condition=IfCondition(AndSubstitution(launch_bridge, launch_oakd)),
+    )
+
+    gazebo_oakd_imu_tf = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="gazebo_oakd_imu_static_tf",
+        output="screen",
+        arguments=[
+            "--frame-id",
+            "oakd_camera_link",
+            "--child-frame-id",
+            "oakd_imu_link",
+        ],
+        parameters=[{"use_sim_time": True}],
+        condition=IfCondition(AndSubstitution(launch_bridge, launch_oakd)),
+    )
+
+    gazebo_mid360_tf = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="gazebo_mid360_static_tf",
+        output="screen",
+        arguments=[
+            "--x",
+            "0.113137085",
+            "--y",
+            "-0.113137085",
+            "--z",
+            "0.18",
+            "--yaw",
+            "0.7853981634",
+            "--pitch",
+            "0.0",
+            "--roll",
+            "0.5235987756",
+            "--frame-id",
+            "base_link",
+            "--child-frame-id",
+            "mid360_link",
+        ],
+        parameters=[{"use_sim_time": True}],
+        condition=IfCondition(AndSubstitution(launch_bridge, launch_mid360)),
     )
 
     nvidia_nav = IncludeLaunchDescription(
@@ -147,17 +268,36 @@ def generate_launch_description():
     return LaunchDescription(
         [
             DeclareLaunchArgument(
+                "arena",
+                default_value="omni_harmonic_demo",
+                description=(
+                    "Bundled arena name: omni_harmonic_demo, rmuc_2024, "
+                    "rmuc_2025, rmul_2024, or rmul_2025"
+                ),
+            ),
+            DeclareLaunchArgument(
                 "world",
                 default_value=PathJoinSubstitution(
                     [
                         FindPackageShare("omni_bringup"),
                         "gazebo",
                         "worlds",
-                        "omni_harmonic_demo.sdf",
+                        PythonExpression(["'", arena, ".sdf'"]),
                     ]
                 ),
+                description="World SDF path; overrides the bundled arena selection",
             ),
-            DeclareLaunchArgument("gz_args", default_value=["-r -v 3 ", world]),
+            DeclareLaunchArgument(
+                "gz_args",
+                default_value=[
+                    "-r -v 3 --physics-engine gz-physics-dartsim-plugin ",
+                    world,
+                ],
+                description=(
+                    "Gazebo arguments. DART is required by the mecanum wheel model's "
+                    "directional friction and supports the bundled static arena meshes."
+                ),
+            ),
             DeclareLaunchArgument(
                 "bridge_config",
                 default_value=PathJoinSubstitution(
@@ -165,12 +305,44 @@ def generate_launch_description():
                         FindPackageShare("omni_bringup"),
                         "gazebo",
                         "config",
-                        "omni_gazebo_bridge.yaml",
+                        "omni_gazebo_core_bridge.yaml",
+                    ]
+                ),
+            ),
+            DeclareLaunchArgument(
+                "oakd_bridge_config",
+                default_value=PathJoinSubstitution(
+                    [
+                        FindPackageShare("omni_bringup"),
+                        "gazebo",
+                        "config",
+                        "omni_gazebo_oakd_bridge.yaml",
+                    ]
+                ),
+            ),
+            DeclareLaunchArgument(
+                "mid360_bridge_config",
+                default_value=PathJoinSubstitution(
+                    [
+                        FindPackageShare("omni_bringup"),
+                        "gazebo",
+                        "config",
+                        "omni_gazebo_mid360_bridge.yaml",
                     ]
                 ),
             ),
             DeclareLaunchArgument("launch_gazebo", default_value="true"),
             DeclareLaunchArgument("launch_bridge", default_value="true"),
+            DeclareLaunchArgument(
+                "launch_oakd",
+                default_value="true",
+                description="Bridge the simulated OAK-D RGB-D camera and IMU.",
+            ),
+            DeclareLaunchArgument(
+                "launch_mid360",
+                default_value="true",
+                description="Bridge the simulated MID360 point cloud and IMU.",
+            ),
             DeclareLaunchArgument("launch_navigation", default_value="true"),
             DeclareLaunchArgument("launch_nvblox", default_value="true"),
             DeclareLaunchArgument("launch_nav2", default_value="true"),
@@ -207,11 +379,17 @@ def generate_launch_description():
             DeclareLaunchArgument(
                 "auto_goals_pause_between_goals_sec", default_value="3.0"
             ),
+            register_gazebo_models,
             gazebo,
             bridge,
+            oakd_bridge,
+            mid360_bridge,
             color_image_bridge,
             depth_image_bridge,
             gazebo_camera_tf,
+            gazebo_camera_optical_tf,
+            gazebo_oakd_imu_tf,
+            gazebo_mid360_tf,
             nvidia_nav,
             rviz,
             auto_goals,
