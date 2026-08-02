@@ -13,6 +13,8 @@ OAK-D、Isaac ROS Visual SLAM、nvblox、Nav2 和底盘串口桥展开。
 - [NVIDIA 3D 导航架构](./NVIDIA_3D_NAV_ARCHITECTURE.md)：当前 OAK-D + cuVSLAM + nvblox + Nav2 架构。
 - [NVIDIA 3D 导航项目计划](./NVIDIA_3D_NAV_PROJECT_PLAN.md)：分阶段迁移计划。
 - [Gazebo Harmonic 仿真](./GAZEBO_HARMONIC_SIMULATION.md)：当前推荐的无硬件仿真路径。
+- [Gazebo 建图测试指南](./GAZEBO_MAPPING_GUIDE.md)：RMUC 2025 仿真建图、移动验证和地图保存。
+- [OAK-D 真实环境建图指南](./OAKD_REAL_MAPPING_GUIDE.md)：真实相机在线建图、保存、重定位和验收流程。
 - [Isaac Sim 最小仿真验证](./ISAAC_SIM_SIMULATION.md)：无真实硬件时验证 ROS 2 侧 Nav2 / nvblox 闭环。
 
 新增文档应只描述当前地面机器人项目，不再扩展无人机主线。

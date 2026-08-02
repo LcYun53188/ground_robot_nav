@@ -21,6 +21,8 @@ OAK-D 为第一版核心传感器，使用 Isaac ROS Visual SLAM / cuVSLAM 提�
 - [docs/NVIDIA_3D_NAV_ARCHITECTURE.md](docs/NVIDIA_3D_NAV_ARCHITECTURE.md)：NVIDIA 3D 导航架构说明。
 - [docs/NVIDIA_3D_NAV_PROJECT_PLAN.md](docs/NVIDIA_3D_NAV_PROJECT_PLAN.md)：分阶段迁移计划。
 - [docs/GAZEBO_HARMONIC_SIMULATION.md](docs/GAZEBO_HARMONIC_SIMULATION.md)：Gazebo Harmonic + ros_gz 仿真入口。
+- [docs/GAZEBO_MAPPING_GUIDE.md](docs/GAZEBO_MAPPING_GUIDE.md)：RMUC 2025 Gazebo 建图、移动验证及地图保存。
+- [docs/OAKD_REAL_MAPPING_GUIDE.md](docs/OAKD_REAL_MAPPING_GUIDE.md)：真实 OAK-D 建图、保存、重定位和验收流程。
 - [docs/ISAAC_SIM_SIMULATION.md](docs/ISAAC_SIM_SIMULATION.md)：Isaac Sim 4.5 / 轻量仿真验证。
 
 ## 环境配置

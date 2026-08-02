@@ -19,6 +19,8 @@ MID360 的复杂跨设备时间戳对齐。
 - [NVIDIA 3D 导航架构](./NVIDIA_3D_NAV_ARCHITECTURE.md)：当前 OAK-D + cuVSLAM + nvblox + Nav2 架构，以及 VINS 残留状态说明。
 - [NVIDIA 3D 导航项目计划](./NVIDIA_3D_NAV_PROJECT_PLAN.md)：阶段计划、最小可行版本边界和后续 ESS / MID360 安排。
 - [Gazebo Harmonic 仿真](./GAZEBO_HARMONIC_SIMULATION.md)：当前推荐的无硬件仿真路径，使用 Gazebo Harmonic + `ros_gz`。
+- [Gazebo 建图测试指南](./GAZEBO_MAPPING_GUIDE.md)：使用 RMUC 2025 场地验证仿真 OAK-D、nvblox、Nav2、地图保存和加载。
+- [OAK-D 真实环境建图指南](./OAKD_REAL_MAPPING_GUIDE.md)：真实 OAK-D 建图、数据检查、地图保存、视觉重定位和持久化限制。
 - [Isaac Sim 4.5 / 轻量仿真验证](./ISAAC_SIM_SIMULATION.md)：无真实硬件时验证 ROS 2 侧 Nav2 / nvblox 闭环。
 
 ## 当前运行入口
@@ -40,10 +42,8 @@ env FASTDDS_BUILTIN_TRANSPORTS=UDPv4 ROS_LOG_DIR=/tmp/ros_log \
 Gazebo Harmonic 仿真入口：
 
 ```bash
-./simulation/scripts/run_gazebo_harmonic_nav.sh
-
-./simulation/scripts/run_gazebo_harmonic_nav.sh launch_auto_goals:=false
-
+./simulation/scripts/run_rmuc_2025_sim.sh
+./simulation/scripts/run_rmuc_2025_sim.sh launch_auto_goals:=true
 ```
 
 Isaac Sim 最小仿真入口：
