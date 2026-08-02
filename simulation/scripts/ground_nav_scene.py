@@ -704,16 +704,14 @@ def _build_stage(config: Dict[str, Any], state: RobotState) -> None:
     ground.AddScaleOp().Set(Gf.Vec3f(ground_size, ground_size, 0.05))
 
     robot_path = _deep_get(config, "robot.prim_path", "/World/GroundRobot")
-    robot_height = float(_deep_get(config, "robot.dimensions.height_m", 0.20))
+    robot_radius = float(_deep_get(config, "robot.dimensions.radius_m", 0.18))
+    robot_height = float(_deep_get(config, "robot.dimensions.height_m", 0.16))
     robot = UsdGeom.Xform.Define(stage, robot_path)
     robot.AddTranslateOp().Set(Gf.Vec3d(state.x, state.y, state.z))
-    body = UsdGeom.Cube.Define(stage, f"{robot_path}/Body")
-    body.CreateSizeAttr(1.0)
-    body.AddScaleOp().Set(Gf.Vec3f(
-        float(_deep_get(config, "robot.dimensions.length_m", 0.55)),
-        float(_deep_get(config, "robot.dimensions.width_m", 0.45)),
-        robot_height,
-    ))
+    body = UsdGeom.Cylinder.Define(stage, f"{robot_path}/Body")
+    body.CreateAxisAttr("Z")
+    body.CreateRadiusAttr(robot_radius)
+    body.CreateHeightAttr(robot_height)
     oakd_path = _deep_get(config, "oakd.prim_path", f"{robot_path}/OAKD")
     UsdGeom.Xform.Define(stage, oakd_path)
 
@@ -784,7 +782,7 @@ def main() -> None:
         z=float(_deep_get(
             config,
             "robot.initial_pose.z",
-            float(_deep_get(config, "robot.dimensions.height_m", 0.20)) / 2.0,
+            float(_deep_get(config, "robot.dimensions.height_m", 0.16)) / 2.0,
         )),
         yaw=float(_deep_get(config, "robot.initial_pose.yaw", 0.0)),
     )

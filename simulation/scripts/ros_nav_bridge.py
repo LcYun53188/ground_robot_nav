@@ -160,7 +160,7 @@ class IsaacSimRosBridge(Node):
             z=float(_deep_get(
                 config,
                 "robot.initial_pose.z",
-                float(_deep_get(config, "robot.dimensions.height_m", 0.20)) / 2.0,
+                float(_deep_get(config, "robot.dimensions.height_m", 0.16)) / 2.0,
             )),
             yaw=float(_deep_get(config, "robot.initial_pose.yaw", 0.0)),
         )

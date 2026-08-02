@@ -60,12 +60,13 @@ robot:
   initial_pose:
     x: 0.0
     y: 0.0
-    z: 0.10
+    z: 0.08
     yaw: 0.0
   dimensions:
-    length_m: 0.55
-    width_m: 0.45
-    height_m: 0.20
+    # Its diameter and height are 4/5 of the original 0.45 m short side
+    # and 0.20 m height, respectively.
+    radius_m: 0.18
+    height_m: 0.16
   max_linear_speed_mps: 0.6
   max_angular_speed_radps: 1.0
   cmd_vel_topic: "/cmd_vel"
