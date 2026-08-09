@@ -14,6 +14,13 @@
     </plugin>
     <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
 
+    <!-- Keep terrain readable on faces that are not reached by the sun. -->
+    <scene>
+      <ambient>0.45 0.45 0.45 1</ambient>
+      <background>0.70 0.75 0.80 1</background>
+      <shadows>true</shadows>
+    </scene>
+
     <light type="directional" name="sun">
       <pose>0 0 8 0 0 0</pose>
       <cast_shadows>true</cast_shadows>
@@ -154,7 +161,8 @@
           </inertia>
         </inertial>
         <collision name="collision">
-          <geometry><cylinder><radius>0.18</radius><length>0.144</length></cylinder></geometry>
+          <!-- Match the reusable model's ramp-friendly belly clearance. -->
+          <geometry><cylinder><radius>0.18</radius><length>0.10</length></cylinder></geometry>
         </collision>
         <visual name="body">
           <geometry><cylinder><radius>0.18</radius><length>0.144</length></cylinder></geometry>
@@ -300,7 +308,7 @@
         <inertial><mass>0.8</mass><inertia><ixx>0.002</ixx><iyy>0.002</iyy><izz>0.001</izz></inertia></inertial>
         <collision name="collision">
           <geometry><sphere><radius>0.07</radius></sphere></geometry>
-          <surface><friction><ode><mu>1.0</mu><mu2>0.0</mu2><fdir1 gz:expressed_in="base_link">1 -1 0</fdir1></ode></friction></surface>
+          <surface><friction><ode><mu>2.0</mu><mu2>0.6</mu2><fdir1 gz:expressed_in="base_link">1 -1 0</fdir1></ode></friction></surface>
         </collision>
         <visual name="visual"><geometry><cylinder><radius>0.07</radius><length>0.045</length></cylinder></geometry></visual>
       </link>
@@ -310,7 +318,7 @@
         <inertial><mass>0.8</mass><inertia><ixx>0.002</ixx><iyy>0.002</iyy><izz>0.001</izz></inertia></inertial>
         <collision name="collision">
           <geometry><sphere><radius>0.07</radius></sphere></geometry>
-          <surface><friction><ode><mu>1.0</mu><mu2>0.0</mu2><fdir1 gz:expressed_in="base_link">1 1 0</fdir1></ode></friction></surface>
+          <surface><friction><ode><mu>2.0</mu><mu2>0.6</mu2><fdir1 gz:expressed_in="base_link">1 1 0</fdir1></ode></friction></surface>
         </collision>
         <visual name="visual"><geometry><cylinder><radius>0.07</radius><length>0.045</length></cylinder></geometry></visual>
       </link>
@@ -320,7 +328,7 @@
         <inertial><mass>0.8</mass><inertia><ixx>0.002</ixx><iyy>0.002</iyy><izz>0.001</izz></inertia></inertial>
         <collision name="collision">
           <geometry><sphere><radius>0.07</radius></sphere></geometry>
-          <surface><friction><ode><mu>1.0</mu><mu2>0.0</mu2><fdir1 gz:expressed_in="base_link">1 1 0</fdir1></ode></friction></surface>
+          <surface><friction><ode><mu>2.0</mu><mu2>0.6</mu2><fdir1 gz:expressed_in="base_link">1 1 0</fdir1></ode></friction></surface>
         </collision>
         <visual name="visual"><geometry><cylinder><radius>0.07</radius><length>0.045</length></cylinder></geometry></visual>
       </link>
@@ -330,7 +338,7 @@
         <inertial><mass>0.8</mass><inertia><ixx>0.002</ixx><iyy>0.002</iyy><izz>0.001</izz></inertia></inertial>
         <collision name="collision">
           <geometry><sphere><radius>0.07</radius></sphere></geometry>
-          <surface><friction><ode><mu>1.0</mu><mu2>0.0</mu2><fdir1 gz:expressed_in="base_link">1 -1 0</fdir1></ode></friction></surface>
+          <surface><friction><ode><mu>2.0</mu><mu2>0.6</mu2><fdir1 gz:expressed_in="base_link">1 -1 0</fdir1></ode></friction></surface>
         </collision>
         <visual name="visual"><geometry><cylinder><radius>0.07</radius><length>0.045</length></cylinder></geometry></visual>
       </link>

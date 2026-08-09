@@ -13,6 +13,13 @@
     </plugin>
     <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
 
+    <!-- Keep terrain readable on faces that are not reached by the sun. -->
+    <scene>
+      <ambient>0.45 0.45 0.45 1</ambient>
+      <background>0.70 0.75 0.80 1</background>
+      <shadows>true</shadows>
+    </scene>
+
     <light type="directional" name="sun">
       <pose>0 0 12 0 0 0</pose>
       <cast_shadows>true</cast_shadows>
@@ -42,4 +49,3 @@
     </model>
   </world>
 </sdf>
-

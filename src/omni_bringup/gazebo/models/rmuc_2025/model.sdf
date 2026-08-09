@@ -10,7 +10,8 @@
       <visual name='visual'>
         <geometry>
           <mesh>
-            <uri>model://rmuc_2025/meshes/rmuc_2025.stl</uri>
+            <!-- The display mesh omits four malformed 18.55 m perimeter walls. -->
+            <uri>model://rmuc_2025/meshes/rmuc_2025_visual.stl</uri>
             <scale>1 1 1</scale>
           </mesh>
         </geometry>
