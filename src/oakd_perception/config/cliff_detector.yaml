@@ -1,0 +1,35 @@
+oakd_cliff_detector:
+  ros__parameters:
+    depth_topic: /oakd/depth/image
+    camera_info_topic: /oakd/depth/camera_info
+    output_topic: /perception/cliff_points
+    clear_output_topic: /perception/cliff_clear_points
+    target_frame: base_link
+    pixel_stride: 4
+    # Mark the nearer terrain boundary when the lower surface is occluded or
+    # produces no depth return.
+    enable_depth_edge_detection: true
+    min_depth_jump_m: 0.12
+    min_depth_edge_support_pixels: 3
+    detect_missing_depth_edges: true
+    min_range_m: 0.25
+    max_range_m: 4.0
+    lateral_range_m: 2.0
+    # base_link is approximately 0.11 m above the supporting surface.
+    expected_ground_z_m: -0.11
+    ground_search_tolerance_m: 0.18
+    # Do not let a lower floor surrounding a narrow ramp replace the support
+    # surface estimate. base_link height is the stable reference here.
+    max_ground_height_adjustment_m: 0.03
+    ground_estimation_max_range_m: 1.2
+    ground_estimation_half_width_m: 0.6
+    ground_upper_tolerance_m: 0.08
+    max_detectable_drop_m: 0.50
+    # Include rising traversable terrain so its side drop is still visible.
+    max_terrain_height_change_m: 0.75
+    grid_resolution_m: 0.08
+    min_drop_height_m: 0.08
+    max_traversable_slope_deg: 45.0
+    height_tolerance_m: 0.01
+    min_lower_neighbors: 2
+    tf_timeout_sec: 0.05

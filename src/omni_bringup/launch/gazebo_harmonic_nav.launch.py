@@ -211,6 +211,9 @@ def generate_launch_description():
             "launch_visual_slam": "false",
             "launch_ess": "false",
             "launch_nvblox": LaunchConfiguration("launch_nvblox"),
+            "launch_cliff_detector": LaunchConfiguration(
+                "launch_cliff_detector"
+            ),
             "launch_nav2": LaunchConfiguration("launch_nav2"),
             "launch_ground_bridge": "false",
             "launch_odom_guard": "false",
@@ -218,6 +221,9 @@ def generate_launch_description():
             "publish_oakd_static_tf": "false",
             "nav2_params_file": LaunchConfiguration("nav2_params_file"),
             "nvblox_params_file": LaunchConfiguration("nvblox_params_file"),
+            "cliff_detector_params_file": LaunchConfiguration(
+                "cliff_detector_params_file"
+            ),
             "left_image_topic": "/rgbd_camera/image",
             "left_camera_info_topic": "/rgbd_camera/camera_info",
             "right_image_topic": "/rgbd_camera/image",
@@ -345,6 +351,7 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument("launch_navigation", default_value="true"),
             DeclareLaunchArgument("launch_nvblox", default_value="true"),
+            DeclareLaunchArgument("launch_cliff_detector", default_value="true"),
             DeclareLaunchArgument("launch_nav2", default_value="true"),
             DeclareLaunchArgument("launch_rviz", default_value="true"),
             DeclareLaunchArgument("launch_auto_goals", default_value="true"),
@@ -358,6 +365,16 @@ def generate_launch_description():
                 "nvblox_params_file",
                 default_value=PathJoinSubstitution(
                     [FindPackageShare("omni_bringup"), "config", "nvblox_isaac_sim.yaml"]
+                ),
+            ),
+            DeclareLaunchArgument(
+                "cliff_detector_params_file",
+                default_value=PathJoinSubstitution(
+                    [
+                        FindPackageShare("oakd_perception"),
+                        "config",
+                        "cliff_detector_gazebo.yaml",
+                    ]
                 ),
             ),
             DeclareLaunchArgument(

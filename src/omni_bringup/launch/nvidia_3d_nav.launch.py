@@ -349,6 +349,20 @@ def launch_setup(context, *args, **kwargs):
     )
 
     nodes.append(
+        Node(
+            package="oakd_perception",
+            executable="cliff_detector",
+            name="oakd_cliff_detector",
+            output="screen",
+            parameters=[
+                LaunchConfiguration("cliff_detector_params_file"),
+                {"use_sim_time": LaunchConfiguration("use_sim_time")},
+            ],
+            condition=IfCondition(LaunchConfiguration("launch_cliff_detector")),
+        )
+    )
+
+    nodes.append(
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 PathJoinSubstitution(
@@ -480,6 +494,13 @@ def generate_launch_description():
             # in this NVIDIA path, so keep it opt-in.
             DeclareLaunchArgument("oakd_enable_pointcloud_publish", default_value="false"),
             DeclareLaunchArgument("oakd_enable_depth_publish", default_value="true"),
+            DeclareLaunchArgument("launch_cliff_detector", default_value="true"),
+            DeclareLaunchArgument(
+                "cliff_detector_params_file",
+                default_value=PathJoinSubstitution(
+                    [FindPackageShare("oakd_perception"), "config", "cliff_detector.yaml"]
+                ),
+            ),
             DeclareLaunchArgument(
                 "visual_slam_package", default_value="isaac_ros_visual_slam"
             ),

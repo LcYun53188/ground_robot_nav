@@ -16,16 +16,34 @@ nvblox_node:
     esdf_mode: 2d
     publish_esdf_distance_slice: true
     publish_map_slice: true
+    # RViz-only OccupancyGrid offset; Nav2 DistanceMapSlice stays unchanged.
+    occupancy_grid_visualization_z_offset_m: -0.20
     # Nav2 only consumes the 2D distance/map slice. Mesh visualization is useful
     # for 3D inspection but expensive during live navigation, so keep it off by
     # default for OAK-D real-time runs.
     publish_mesh: false
 
-    # Low ground robot: keep the relevant vertical band tight enough for 250 mm
-    # passages, but leave room for brackets and hanging obstacles.
-    slice_height: 0.12
-    min_height: 0.10
-    max_height: 0.50
+    # Fit the obstacle slice to the locally observed ground. A fixed odom-Z
+    # slice turns a ramp into an obstacle as soon as the ground rises above the
+    # lower slice bound. Keep the candidate band wider than the expected small
+    # ramps, while using a tight RANSAC threshold so low obstacles do not become
+    # part of the ground model.
+    multi_mapper:
+      experimental_use_ground_plane_estimation: true
+      # Inclination is measured from horizontal. Exactly 45 deg is allowed;
+      # steeper fitted surfaces fall back to the obstacle slice below.
+      max_ground_plane_slope_deg: 45.0
+      # Projective TSDF gradients can point downward when the camera observes a
+      # ramp from its low side. Accept reversed gradients only for a clear
+      # 5-45 deg incline so horizontal overhang undersides remain obstacles.
+      min_reversed_traversable_slope_deg: 5.0
+      # Rescue unreliable normals only when neighboring TSDF zero crossings
+      # form a continuous ramp. Keep this below the rejected step height.
+      traversable_elevation_height_tolerance_m: 0.02
+      ground_points_candidates_min_z_m: -0.20
+      ground_points_candidates_max_z_m: 0.35
+      ransac_distance_threshold_m: 0.05
+      num_ransac_iterations: 300
 
     maximum_sensor_message_queue_length: 10
     max_back_projection_distance: 15.0
@@ -36,4 +54,14 @@ nvblox_node:
     color_qos: sensor_data
 
     static_mapper:
+      # These are the current nvblox parameter names. When a ground plane is
+      # available, cover the robot's 0.36 m vertical envelope, starting one
+      # voxel above the ground so the floor itself is not projected as an
+      # obstacle. The constant-Z values are retained as a safe fallback while
+      # the plane is not yet observable.
+      esdf_slice_height: 0.12
+      esdf_slice_min_height: 0.03
+      esdf_slice_max_height: 0.36
+      slice_height_above_plane_m: 0.03
+      slice_height_thickness_m: 0.33
       projective_integrator_max_integration_distance_m: 15.0

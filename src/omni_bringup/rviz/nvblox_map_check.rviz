@@ -24,6 +24,7 @@ Visualization Manager:
         Line Width: 0.03
         Value: Lines
       Name: Ground Grid
+      Offset: -0.2
       Plane: XY
       Plane Cell Count: 40
       Reference Frame: odom

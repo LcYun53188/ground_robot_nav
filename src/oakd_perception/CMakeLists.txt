@@ -18,6 +18,7 @@ install(
 
 install(
   PROGRAMS
+    scripts/cliff_detector
     scripts/oakd_depth_node_py
     scripts/oakd_imu_node_py
   DESTINATION lib/${PROJECT_NAME}
@@ -62,6 +63,8 @@ endif()
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   ament_lint_auto_find_test_dependencies()
+  find_package(ament_cmake_pytest REQUIRED)
+  ament_add_pytest_test(test_cliff_detector test/test_cliff_detector.py)
 endif()
 
 ament_package()

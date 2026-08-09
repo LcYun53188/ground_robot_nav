@@ -16,6 +16,7 @@ nvblox_node:
     esdf_mode: 2d
     publish_esdf_distance_slice: true
     publish_map_slice: true
+    occupancy_grid_visualization_z_offset_m: -0.20
     publish_mesh: true
 
     # Preserve every integrated static TSDF block for full-session map export.
@@ -24,11 +25,20 @@ nvblox_node:
     decay_tsdf_rate_hz: 0.0
     map_clearing_radius_m: -1.0
 
-    # Low ground robot: keep the relevant vertical band tight enough for 250 mm
-    # passages, but leave room for brackets and hanging obstacles.
-    slice_height: 0.12
-    min_height: 0.03
-    max_height: 1.20
+    # Apply the same per-column, viewpoint-aware TSDF slope classification as
+    # the real robot: eligible surfaces up to 45 deg are traversable.
+    multi_mapper:
+      max_ground_plane_slope_deg: 45.0
+      min_reversed_traversable_slope_deg: 5.0
+      traversable_elevation_height_tolerance_m: 0.02
+
+    # Current nvblox names for the constant-Z obstacle slice. Simulation keeps
+    # a fixed plane because the generated test world is level. Match the real
+    # robot's 0.03 to 0.36 m vertical envelope without projecting the floor.
+    static_mapper:
+      esdf_slice_height: 0.12
+      esdf_slice_min_height: 0.03
+      esdf_slice_max_height: 0.36
 
     maximum_sensor_message_queue_length: 10
     back_projection_subsampling: 1

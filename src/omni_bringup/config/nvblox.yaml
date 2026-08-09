@@ -12,10 +12,29 @@ nvblox_node:
     publish_esdf_distance_slice: true
     publish_map_slice: true
     publish_mesh: true
+    occupancy_grid_visualization_z_offset_m: -0.20
 
-    slice_height: 0.12
-    min_height: 0.05
-    max_height: 1.20
+    # Follow the local ground plane so gradual ramps are not projected as
+    # obstacles by a fixed odom-Z slice.
+    multi_mapper:
+      experimental_use_ground_plane_estimation: true
+      max_ground_plane_slope_deg: 45.0
+      # Accept view-reversed ramp normals above 5 deg, but keep near-horizontal
+      # downward-facing overhangs as obstacles.
+      min_reversed_traversable_slope_deg: 5.0
+      traversable_elevation_height_tolerance_m: 0.02
+      ground_points_candidates_min_z_m: -0.20
+      ground_points_candidates_max_z_m: 0.35
+      ransac_distance_threshold_m: 0.05
+      num_ransac_iterations: 300
+
+    static_mapper:
+      esdf_slice_height: 0.12
+      # Start above the floor and retain 0.36 m for the installed robot envelope.
+      esdf_slice_min_height: 0.03
+      esdf_slice_max_height: 0.36
+      slice_height_above_plane_m: 0.03
+      slice_height_thickness_m: 0.33
 
     maximum_sensor_message_queue_length: 10
     back_projection_subsampling: 1

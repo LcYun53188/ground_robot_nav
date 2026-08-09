@@ -42,20 +42,21 @@ controller_server:
       batch_size: 1200
       iteration_count: 1
       vx_std: 0.16
-      vy_std: 0.18
+      vy_std: 0.0
       wz_std: 0.30
-      vx_max: 0.35
-      vx_min: -0.18
-      vy_max: 0.35
+      vx_max: 0.25
+      # OAK-D-only safety profile: travel only inside the front camera view.
+      vx_min: 0.0
+      vy_max: 0.0
       wz_max: 0.70
-      ax_max: 0.35
-      ax_min: -0.40
+      ax_max: 0.20
+      ax_min: -0.30
       ay_max: 0.35
       ay_min: -0.40
       az_max: 0.90
       temperature: 0.3
       gamma: 0.015
-      motion_model: "Omni"
+      motion_model: "DiffDrive"
       visualize: false
       regenerate_noises: false
       retry_attempt_limit: 1
@@ -134,13 +135,45 @@ local_costmap:
       height: 6
       resolution: 0.05
       footprint: "[[0.32, 0.32], [0.32, -0.32], [-0.32, -0.32], [-0.32, 0.32]]"
-      plugins: ["nvblox_layer", "inflation_layer"]
+      plugins: ["nvblox_layer", "cliff_layer", "inflation_layer"]
       nvblox_layer:
         plugin: "nvblox::nav2::NvbloxCostmapLayer"
         enabled: true
         nav2_costmap_global_frame: odom
         nvblox_map_slice_topic: "/nvblox_node/static_map_slice"
         convert_to_binary_costmap: true
+      cliff_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        footprint_clearing_enabled: true
+        combination_method: 1
+        observation_sources: cliff_points cliff_clear_points
+        cliff_points:
+          topic: /perception/cliff_points
+          data_type: "PointCloud2"
+          marking: true
+          clearing: false
+          min_obstacle_height: -0.65
+          max_obstacle_height: 0.20
+          obstacle_min_range: 0.20
+          obstacle_max_range: 4.0
+          raytrace_min_range: 0.20
+          raytrace_max_range: 4.2
+          observation_persistence: 0.25
+          expected_update_rate: 0.0
+        cliff_clear_points:
+          topic: /perception/cliff_clear_points
+          data_type: "PointCloud2"
+          marking: false
+          clearing: true
+          min_obstacle_height: -0.65
+          max_obstacle_height: 0.20
+          obstacle_min_range: 0.20
+          obstacle_max_range: 4.0
+          raytrace_min_range: 0.20
+          raytrace_max_range: 4.2
+          observation_persistence: 0.0
+          expected_update_rate: 0.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         enabled: true
@@ -162,13 +195,45 @@ global_costmap:
       resolution: 0.05
       footprint: "[[0.32, 0.32], [0.32, -0.32], [-0.32, -0.32], [-0.32, 0.32]]"
       track_unknown_space: false
-      plugins: ["nvblox_layer", "inflation_layer"]
+      plugins: ["nvblox_layer", "cliff_layer", "inflation_layer"]
       nvblox_layer:
         plugin: "nvblox::nav2::NvbloxCostmapLayer"
         enabled: true
         nav2_costmap_global_frame: odom
         nvblox_map_slice_topic: "/nvblox_node/static_map_slice"
         convert_to_binary_costmap: true
+      cliff_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        footprint_clearing_enabled: true
+        combination_method: 1
+        observation_sources: cliff_points cliff_clear_points
+        cliff_points:
+          topic: /perception/cliff_points
+          data_type: "PointCloud2"
+          marking: true
+          clearing: false
+          min_obstacle_height: -0.65
+          max_obstacle_height: 0.20
+          obstacle_min_range: 0.20
+          obstacle_max_range: 4.0
+          raytrace_min_range: 0.20
+          raytrace_max_range: 4.2
+          observation_persistence: 0.50
+          expected_update_rate: 0.0
+        cliff_clear_points:
+          topic: /perception/cliff_clear_points
+          data_type: "PointCloud2"
+          marking: false
+          clearing: true
+          min_obstacle_height: -0.65
+          max_obstacle_height: 0.20
+          obstacle_min_range: 0.20
+          obstacle_max_range: 4.0
+          raytrace_min_range: 0.20
+          raytrace_max_range: 4.2
+          observation_persistence: 0.0
+          expected_update_rate: 0.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         enabled: true
@@ -239,10 +304,10 @@ velocity_smoother:
     smoothing_frequency: 20.0
     scale_velocities: false
     feedback: "OPEN_LOOP"
-    max_velocity: [0.45, 0.50, 0.80]
-    min_velocity: [-0.25, -0.50, -0.80]
-    max_accel: [0.30, 0.30, 1.00]
-    max_decel: [-0.35, -0.35, -1.10]
+    max_velocity: [0.25, 0.0, 0.80]
+    min_velocity: [0.0, 0.0, -0.80]
+    max_accel: [0.20, 0.30, 1.00]
+    max_decel: [-0.30, -0.35, -1.10]
     odom_topic: /odometry/filtered
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]
@@ -251,7 +316,7 @@ velocity_smoother:
 collision_monitor:
   ros__parameters:
     use_sim_time: false
-    enabled: false
+    enabled: true
     base_frame_id: "base_link"
     odom_frame_id: "odom"
     cmd_vel_in_topic: "cmd_vel_smoothed"
@@ -261,24 +326,21 @@ collision_monitor:
     source_timeout: 1.0
     base_shift_correction: true
     stop_pub_timeout: 2.0
-    # No dedicated collision-monitor point source is wired in this OAK-D first
-    # profile yet. Keep a disabled placeholder so Nav2 lifecycle can parse and
-    # activate the node; nvblox remains the obstacle source for the costmaps.
-    polygons: ["DisabledStopZone"]
-    DisabledStopZone:
+    polygons: ["CliffStopZone"]
+    CliffStopZone:
       type: "circle"
-      radius: 0.15
+      radius: 0.48
       action_type: "stop"
-      min_points: 4
-      visualize: false
-      enabled: false
-    observation_sources: ["disabled_pointcloud"]
-    disabled_pointcloud:
+      min_points: 2
+      visualize: true
+      enabled: true
+    observation_sources: ["cliff_points"]
+    cliff_points:
       type: "pointcloud"
-      topic: "/unused/oakd_collision_monitor_points"
-      min_height: 0.15
-      max_height: 2.0
-      enabled: false
+      topic: "/perception/cliff_points"
+      min_height: -0.65
+      max_height: 0.20
+      enabled: true
 
 docking_server:
   ros__parameters:

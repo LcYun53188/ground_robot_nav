@@ -6,6 +6,7 @@ WITH_VENV="$WS_DIR/scripts/with_venv.sh"
 NAV2_CONFIG="$WS_DIR/src/omni_bringup/config/nav2_3d_nav.yaml"
 NVBLOX_CONFIG="$WS_DIR/src/omni_bringup/config/nvblox_3d_nav.yaml"
 VSLAM_CONFIG="$WS_DIR/src/omni_bringup/config/isaac_visual_slam_oakd.yaml"
+CLIFF_CONFIG="$WS_DIR/src/oakd_perception/config/cliff_detector.yaml"
 
 TOPIC_TIMEOUT_SEC="${TOPIC_TIMEOUT_SEC:-6}"
 TF_TIMEOUT_SEC="${TF_TIMEOUT_SEC:-6}"
@@ -104,10 +105,41 @@ check_static_config() {
   require_grep 'publish_odom_to_base_tf: true' "$VSLAM_CONFIG" "Visual SLAM odom->base TF"
   require_grep 'global_frame: odom' "$NVBLOX_CONFIG" "nvblox odom global frame"
   require_grep 'publish_map_slice: true' "$NVBLOX_CONFIG" "nvblox map slice publishing"
+  require_grep 'occupancy_grid_visualization_z_offset_m: -0.20' "$NVBLOX_CONFIG" \
+    "RViz occupancy grid 20 cm below 3D map"
+  require_grep 'experimental_use_ground_plane_estimation: true' "$NVBLOX_CONFIG" \
+    "nvblox adaptive ground-plane slice"
+  require_grep 'max_ground_plane_slope_deg: 45.0' "$NVBLOX_CONFIG" \
+    "nvblox 45-degree ground slope limit"
+  require_grep 'min_reversed_traversable_slope_deg: 5.0' "$NVBLOX_CONFIG" \
+    "nvblox uphill-view ramp normal handling"
+  require_grep 'traversable_elevation_height_tolerance_m: 0.02' "$NVBLOX_CONFIG" \
+    "nvblox local elevation continuity fallback"
+  require_grep 'esdf_slice_min_height: 0.03' "$NVBLOX_CONFIG" \
+    "nvblox ESDF fallback lower bound"
+  require_grep 'esdf_slice_max_height: 0.36' "$NVBLOX_CONFIG" \
+    "nvblox robot-height fallback upper bound"
+  require_grep 'slice_height_above_plane_m: 0.03' "$NVBLOX_CONFIG" \
+    "nvblox ground-relative obstacle clearance"
+  require_grep 'slice_height_thickness_m: 0.33' "$NVBLOX_CONFIG" \
+    "nvblox robot-height obstacle band"
   require_grep 'NvbloxCostmapLayer' "$NAV2_CONFIG" "Nav2 nvblox costmap layer"
+  require_grep 'topic: /perception/cliff_points' "$NAV2_CONFIG" \
+    "Nav2 negative-obstacle point source"
+  require_grep 'topic: /perception/cliff_clear_points' "$NAV2_CONFIG" \
+    "Nav2 negative-obstacle clearing source"
+  require_grep 'plugins: \["nvblox_layer", "cliff_layer", "inflation_layer"\]' \
+    "$NAV2_CONFIG" "Nav2 cliff obstacle layer"
+  require_grep 'min_drop_height_m: 0.08' "$CLIFF_CONFIG" \
+    "OAK-D 8 cm negative-obstacle threshold"
+  require_grep 'min_depth_jump_m: 0.12' "$CLIFF_CONFIG" \
+    "OAK-D occluded-cliff depth-edge threshold"
   require_grep 'nav2_mppi_controller::MPPIController' "$NAV2_CONFIG" "Nav2 MPPI controller"
-  require_grep 'motion_model: "Omni"' "$NAV2_CONFIG" "MPPI omni motion model"
-  require_grep 'odom_topic: /visual_slam/tracking/odometry' "$NAV2_CONFIG" "Nav2 visual slam odom topic"
+  require_grep 'motion_model: "DiffDrive"' "$NAV2_CONFIG" \
+    "OAK-D-only forward-view motion model"
+  require_grep 'polygons: \["CliffStopZone"\]' "$NAV2_CONFIG" \
+    "collision monitor cliff stop zone"
+  require_grep 'odom_topic: /odometry/filtered' "$NAV2_CONFIG" "Nav2 filtered odom topic"
 }
 
 check_package_availability() {
@@ -117,15 +149,20 @@ check_package_availability() {
   check_pkg nav2_bringup
   check_pkg nav2_controller
   check_pkg nav2_mppi_controller
+  check_pkg oakd_perception
 }
 
 check_runtime_graph() {
   check_topic_type "/visual_slam/tracking/odometry" "nav_msgs/msg/Odometry"
   check_topic_type "/nvblox_node/static_map_slice" "nvblox_msgs/msg/DistanceMapSlice"
+  check_topic_type "/perception/cliff_points" "sensor_msgs/msg/PointCloud2"
+  check_topic_type "/perception/cliff_clear_points" "sensor_msgs/msg/PointCloud2"
   check_topic_type "/cmd_vel" "geometry_msgs/msg/Twist"
 
   check_topic_hz "/visual_slam/tracking/odometry"
   check_topic_hz "/nvblox_node/static_map_slice"
+  check_topic_hz "/perception/cliff_points"
+  check_topic_hz "/perception/cliff_clear_points"
   check_topic_hz "/cmd_vel"
 
   check_tf "map" "odom"
