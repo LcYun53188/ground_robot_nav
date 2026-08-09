@@ -1,5 +1,807 @@
+diff --git a/nvblox/include/nvblox/gpu_hash/internal/cuda/impl/gpu_hash_interface_impl.cuh b/nvblox/include/nvblox/gpu_hash/internal/cuda/impl/gpu_hash_interface_impl.cuh
+index f6b26a200c6631e007d802f9cfb043a9480dbda3..8cb379fc2544b984d6240d6cc054d41294c32692 100644
+--- a/nvblox/include/nvblox/gpu_hash/internal/cuda/impl/gpu_hash_interface_impl.cuh
++++ b/nvblox/include/nvblox/gpu_hash/internal/cuda/impl/gpu_hash_interface_impl.cuh
+@@ -50,8 +50,8 @@ __global__ void setToZero(Index3DDeviceHashMapType<BlockType> block_hash) {
+   int idx = threadIdx.x + blockIdx.x * blockDim.x;
+ 
+   if (idx < block_hash.max_size()) {
+-    memset(block_hash.begin() + idx, 0,
+-           sizeof(thrust::pair<Index3D, BlockType*>));
++    ::memset(block_hash.begin() + idx, 0,
++             sizeof(thrust::pair<Index3D, BlockType*>));
+   }
+ }
+ 
+diff --git a/nvblox/include/nvblox/integrators/esdf_integrator.h b/nvblox/include/nvblox/integrators/esdf_integrator.h
+index 5562fc46c28538e3eeceadfc36cf8d0867bc5c34..61e2bd41d85ae6a17dc59cf0e10d2c690a53e23e 100644
+--- a/nvblox/include/nvblox/integrators/esdf_integrator.h
++++ b/nvblox/include/nvblox/integrators/esdf_integrator.h
+@@ -36,6 +36,128 @@ struct Index3DDeviceSet;
+ struct OccupancySiteFunctor;
+ struct TsdfSiteFunctor;
+ 
++/// Return whether a TSDF surface gradient represents a surface within the
++/// configured traversable slope. Upward gradients are accepted directly.
++/// Reversed gradients are accepted only above a minimum nonzero slope because
++/// projective TSDF signs can flip when a ramp is observed from below. This
++/// keeps nearly horizontal downward-facing surfaces (for example, the bottom
++/// of a low overhang) classified as obstacles.
++__host__ __device__ inline bool isTsdfSurfaceGradientTraversable(
++    const Vector3f& gradient, float min_traversable_normal_z,
++    float max_reversed_traversable_normal_z) {
++  constexpr float kMinSquaredGradientNorm = 1e-8f;
++  constexpr float kComparisonTolerance = 1e-5f;
++  const float squared_norm = gradient.squaredNorm();
++  if (squared_norm <= kMinSquaredGradientNorm) {
++    return false;
++  }
++  const float norm = sqrtf(squared_norm);
++  const float normalized_z = gradient.z() / norm;
++  const float min_z = min_traversable_normal_z - kComparisonTolerance;
++  if (normalized_z > 0.0f) {
++    return normalized_z >= min_z;
++  }
++  const float reversed_normal_z = -normalized_z;
++  return reversed_normal_z >= min_z &&
++         reversed_normal_z <=
++             max_reversed_traversable_normal_z + kComparisonTolerance;
++}
++
++/// Estimate one TSDF gradient component from the nearest observed samples on
++/// either side of a surface voxel. Central differences are preferred, while a
++/// one-sided difference keeps sparse depth boundaries classifiable.
++__host__ __device__ inline bool calculateTsdfGradientComponent(
++    float center_distance, bool lower_valid, float lower_distance,
++    int lower_offset_vox, bool upper_valid, float upper_distance,
++    int upper_offset_vox, float* gradient_component) {
++  lower_valid = lower_valid && lower_offset_vox > 0;
++  upper_valid = upper_valid && upper_offset_vox > 0;
++  if (lower_valid && upper_valid) {
++    *gradient_component =
++        (upper_distance - lower_distance) /
++        static_cast<float>(lower_offset_vox + upper_offset_vox);
++    return true;
++  }
++  if (upper_valid) {
++    *gradient_component =
++        (upper_distance - center_distance) /
++        static_cast<float>(upper_offset_vox);
++    return true;
++  }
++  if (lower_valid) {
++    *gradient_component =
++        (center_distance - lower_distance) /
++        static_cast<float>(lower_offset_vox);
++    return true;
++  }
++  return false;
++}
++
++/// Interpolate the height of a TSDF zero crossing between two vertically
++/// adjacent observed samples. The sign order is intentionally ignored so the
++/// elevation estimate is independent of the camera viewing direction.
++__host__ __device__ inline bool calculateTsdfZeroCrossingHeight(
++    float lower_height_m, float lower_distance, float upper_height_m,
++    float upper_distance, float* crossing_height_m) {
++  constexpr float kMinDistanceDifference = 1e-8f;
++  if ((lower_distance < 0.0f && upper_distance < 0.0f) ||
++      (lower_distance > 0.0f && upper_distance > 0.0f)) {
++    return false;
++  }
++  const float distance_difference = lower_distance - upper_distance;
++  if (fabsf(distance_difference) <= kMinDistanceDifference) {
++    *crossing_height_m = 0.5f * (lower_height_m + upper_height_m);
++    return true;
++  }
++  const float interpolation = lower_distance / distance_difference;
++  if (interpolation < 0.0f || interpolation > 1.0f) {
++    return false;
++  }
++  *crossing_height_m =
++      lower_height_m + interpolation * (upper_height_m - lower_height_m);
++  return true;
++}
++
++/// Return whether a neighboring elevation is compatible with a continuous
++/// slope. A small metric tolerance absorbs depth noise without allowing a
++/// genuine step discontinuity through the slope test.
++__host__ __device__ inline bool isElevationDifferenceWithinSlopeLimit(
++    float height_difference_m, float horizontal_distance_m,
++    float max_slope_tangent, float height_tolerance_m) {
++  if (horizontal_distance_m <= 0.0f) {
++    return false;
++  }
++  return fabsf(height_difference_m) <=
++         max_slope_tangent * horizontal_distance_m + height_tolerance_m;
++}
++
++/// Decide whether local elevation evidence is strong enough to rescue a TSDF
++/// column whose surface normals were all unreliable. Explicit steep/downward
++/// normal evidence is never overridden.
++__host__ __device__ inline bool shouldRescueTsdfColumnFromElevation(
++    int valid_neighbor_count, int discontinuous_neighbor_count,
++    bool has_minimum_slope, int nontraversable_normal_count,
++    int unreliable_normal_count) {
++  constexpr int kMinValidElevationNeighbors = 2;
++  return valid_neighbor_count >= kMinValidElevationNeighbors &&
++         discontinuous_neighbor_count == 0 && has_minimum_slope &&
++         nontraversable_normal_count == 0 && unreliable_normal_count > 0;
++}
++
++/// Decide whether the surface evidence in a vertical TSDF column is
++/// sufficiently consistent to remove it from the 2D obstacle slice.
++/// Traversable evidence must outvote steep/downward evidence, and unresolved
++/// samples may not outnumber the traversable samples. A neighboring elevation
++/// discontinuity vetoes clearing so step edges remain obstacles.
++__host__ __device__ inline bool shouldClearTraversableTsdfColumn(
++    int traversable_count, int nontraversable_count, int unreliable_count,
++    int discontinuous_elevation_neighbor_count) {
++  return traversable_count > 0 &&
++         traversable_count > nontraversable_count &&
++         unreliable_count <= traversable_count &&
++         discontinuous_elevation_neighbor_count == 0;
++}
++
+ /// A class performing (incremental) ESDF integration
+ ///
+ /// The Euclidean Signed Distance Function (ESDF) is a distance function where
+@@ -218,6 +340,35 @@ class EsdfIntegrator {
+   /// @param occupied_threshold the minimum probability.
+   void occupied_threshold(float occupied_threshold);
+ 
++  /// Set the maximum local TSDF surface slope that is removed from the 2D
++  /// obstacle slice. A value of 90 degrees disables filtering.
++  void max_traversable_slope_deg(float max_traversable_slope_deg);
++
++  /// Return the local TSDF traversable slope limit in degrees.
++  float max_traversable_slope_deg() const {
++    return max_traversable_slope_deg_;
++  }
++
++  /// Set the minimum slope at which a reversed TSDF gradient may still be
++  /// treated as traversable. Set to 90 degrees to reject reversed gradients.
++  void min_reversed_traversable_slope_deg(
++      float min_reversed_traversable_slope_deg);
++
++  /// Return the reversed-gradient minimum slope in degrees.
++  float min_reversed_traversable_slope_deg() const {
++    return min_reversed_traversable_slope_deg_;
++  }
++
++  /// Set the permitted residual around the local elevation slope model. This
++  /// should be smaller than the minimum step the robot must reject.
++  void traversable_elevation_height_tolerance_m(
++      float traversable_elevation_height_tolerance_m);
++
++  /// Return the local elevation height residual in meters.
++  float traversable_elevation_height_tolerance_m() const {
++    return traversable_elevation_height_tolerance_m_;
++  }
++
+   /// A parameter getter
+   /// The minimum height, in meters, to consider obstacles part of the 2D ESDF
+   /// slice.
+@@ -370,6 +521,16 @@ class EsdfIntegrator {
+   float slice_height_thickness_m_ =
+       kSliceHeightThicknessMParamDesc.default_value;
+ 
++  /// Local TSDF surface-normal filter used only while producing 2D slices.
++  /// Keep disabled by default to preserve upstream nvblox behavior.
++  float max_traversable_slope_deg_ = 90.0f;
++  float min_traversable_normal_z_ = 0.0f;
++  float min_reversed_traversable_slope_deg_ = 90.0f;
++  float max_reversed_traversable_normal_z_ = 0.0f;
++  float min_reversed_traversable_slope_tangent_ = 0.0f;
++  float max_traversable_slope_tangent_ = 0.0f;
++  float traversable_elevation_height_tolerance_m_ = 0.02f;
++
+   /// @brief OccupancyLayer related parameter
+   /// The log odds value greater than which we consider a voxel occupied
+   float occupied_threshold_log_odds_ = logOddsFromProbability(0.5f);
+diff --git a/nvblox/include/nvblox/mapper/multi_mapper.h b/nvblox/include/nvblox/mapper/multi_mapper.h
+index e7cec7ace767813318348943df46814ba7c13295..481707593db2efe5c67fd7421514d70573e271a8 100644
+--- a/nvblox/include/nvblox/mapper/multi_mapper.h
++++ b/nvblox/include/nvblox/mapper/multi_mapper.h
+@@ -66,6 +66,15 @@ inline bool isStaticOccupancy(MappingType mapping_type) {
+   return false;
+ }
+ 
++/// Return the acute angle in degrees between a plane and the horizontal plane.
++/// The normal direction does not affect the result.
++float getGroundPlaneSlopeDeg(const Plane& ground_plane);
++
++/// Return whether a fitted ground plane is within the traversable slope limit.
++/// A plane exactly on the limit is accepted.
++bool isGroundPlaneWithinSlopeLimit(const Plane& ground_plane,
++                                   float max_slope_deg);
++
+ template <>
+ inline std::string toString(const MappingType& mapping_type) {
+   switch (mapping_type) {
+diff --git a/nvblox/include/nvblox/mapper/multi_mapper_params.h b/nvblox/include/nvblox/mapper/multi_mapper_params.h
+index 456c42e783c2b470020911a2fd5c9f348c522c5c..a5ca9c4b161fa637326ed572df34626187e9bab3 100644
+--- a/nvblox/include/nvblox/mapper/multi_mapper_params.h
++++ b/nvblox/include/nvblox/mapper/multi_mapper_params.h
+@@ -34,6 +34,26 @@ constexpr Param<bool>::Description kExperimentalUseGroundPlaneEstimationDesc{
+     "experimental_use_ground_plane_estimation", false,
+     "If set to true, estimate the ground plane and use it to slice the ESDF."};
+ 
++constexpr Param<float>::Description kMaxGroundPlaneSlopeDegDesc{
++    "max_ground_plane_slope_deg", 90.0f,
++    "Maximum ground slope in degrees that is considered traversable. This "
++    "limits both the fitted ground plane and eligible local TSDF surfaces in "
++    "the 2D ESDF slice."};
++
++constexpr Param<float>::Description kMinReversedTraversableSlopeDegDesc{
++    "min_reversed_traversable_slope_deg", 90.0f,
++    "Minimum slope in degrees at which a reversed local TSDF gradient can be "
++    "treated as traversable. This handles ramps observed from below while "
++    "keeping nearly horizontal downward-facing overhangs as obstacles. Set "
++    "to 90 to disable reversed-gradient acceptance."};
++
++constexpr Param<float>::Description
++    kTraversableElevationHeightToleranceMDesc{
++        "traversable_elevation_height_tolerance_m", 0.02f,
++        "Maximum height residual in meters allowed when unreliable TSDF "
++        "surface normals are rescued using neighboring zero-crossing "
++        "elevations. Keep this below the minimum rejected step height."};
++
+ constexpr Param<float>::Description
+     kSegmentationMaskModeProximityThresholdParamDesc{
+         "segmentation_mask_mode_proximity_threshold", 0.2f,
+@@ -50,6 +70,11 @@ struct MultiMapperParams {
+       kSegmentationMaskModeProximityThresholdParamDesc.default_value;
+   Param<bool> experimental_use_ground_plane_estimation{
+       kExperimentalUseGroundPlaneEstimationDesc};
++  Param<float> max_ground_plane_slope_deg{kMaxGroundPlaneSlopeDegDesc};
++  Param<float> min_reversed_traversable_slope_deg{
++      kMinReversedTraversableSlopeDegDesc};
++  Param<float> traversable_elevation_height_tolerance_m{
++      kTraversableElevationHeightToleranceMDesc};
+ 
+   RansacPlaneFitterParams ransac_plane_fitter_params;
+   GroundPlaneEstimatorParams ground_plane_estimator_params;
+diff --git a/nvblox/src/integrators/esdf_integrator.cu b/nvblox/src/integrators/esdf_integrator.cu
+index 96913c97592f0c8ddad342064a3a822ac18dabaa..cbda6592d933d8dc90080c8a532585a61992571c 100644
+--- a/nvblox/src/integrators/esdf_integrator.cu
++++ b/nvblox/src/integrators/esdf_integrator.cu
+@@ -74,6 +74,38 @@ void EsdfIntegrator::occupied_threshold(float occupied_threshold) {
+   occupied_threshold_log_odds_ = logOddsFromProbability(occupied_threshold);
+ }
+ 
++void EsdfIntegrator::max_traversable_slope_deg(
++    float max_traversable_slope_deg) {
++  CHECK_GE(max_traversable_slope_deg, 0.0f);
++  CHECK_LE(max_traversable_slope_deg, 90.0f);
++  constexpr float kDegreesToRadians = 0.017453292519943295f;
++  max_traversable_slope_deg_ = max_traversable_slope_deg;
++  min_traversable_normal_z_ =
++      std::cos(max_traversable_slope_deg * kDegreesToRadians);
++  max_traversable_slope_tangent_ =
++      std::tan(max_traversable_slope_deg * kDegreesToRadians);
++}
++
++void EsdfIntegrator::min_reversed_traversable_slope_deg(
++    float min_reversed_traversable_slope_deg) {
++  CHECK_GE(min_reversed_traversable_slope_deg, 0.0f);
++  CHECK_LE(min_reversed_traversable_slope_deg, 90.0f);
++  constexpr float kDegreesToRadians = 0.017453292519943295f;
++  min_reversed_traversable_slope_deg_ =
++      min_reversed_traversable_slope_deg;
++  max_reversed_traversable_normal_z_ =
++      std::cos(min_reversed_traversable_slope_deg * kDegreesToRadians);
++  min_reversed_traversable_slope_tangent_ =
++      std::tan(min_reversed_traversable_slope_deg * kDegreesToRadians);
++}
++
++void EsdfIntegrator::traversable_elevation_height_tolerance_m(
++    float traversable_elevation_height_tolerance_m) {
++  CHECK_GE(traversable_elevation_height_tolerance_m, 0.0f);
++  traversable_elevation_height_tolerance_m_ =
++      traversable_elevation_height_tolerance_m;
++}
++
+ parameters::ParameterTreeNode EsdfIntegrator::getParameterTree(
+     const std::string& name_remap) const {
+   using parameters::ParameterTreeNode;
+@@ -95,6 +127,12 @@ parameters::ParameterTreeNode EsdfIntegrator::getParameterTree(
+                             slice_height_above_plane_m_),
+           ParameterTreeNode("slice_height_thickness_m:",
+                             slice_height_thickness_m_),
++          ParameterTreeNode("max_traversable_slope_deg:",
++                            max_traversable_slope_deg_),
++          ParameterTreeNode("min_reversed_traversable_slope_deg:",
++                            min_reversed_traversable_slope_deg_),
++          ParameterTreeNode("traversable_elevation_height_tolerance_m:",
++                            traversable_elevation_height_tolerance_m_),
+       });
+ }
+ 
+@@ -135,8 +173,65 @@ struct TsdfSiteFunctor {
+ 
+   float min_weight;
+   float max_site_distance_m;
++  bool slope_filter_enabled;
++  float min_traversable_normal_z;
++  float max_reversed_traversable_normal_z;
++  float min_reversed_traversable_slope_tangent;
++  float max_traversable_slope_tangent;
++  float traversable_elevation_height_tolerance_m;
+ };
+ 
++__device__ bool getTsdfGradient(
++    const Index3DDeviceHashMapType<TsdfBlock>& tsdf_block_hash,
++    float block_size, const Index3D& block_index, const Index3D& voxel_index,
++    const TsdfVoxel& center_voxel, float min_weight, Vector3f* gradient) {
++  constexpr int kVoxelsPerSide = TsdfBlock::kVoxelsPerSide;
++  constexpr int kMaxSearchOffsetVox = 2;
++  const float voxel_size = block_size / kVoxelsPerSide;
++  const Vector3f center = getCenterPositionFromBlockIndexAndVoxelIndex(
++      block_size, block_index, voxel_index);
++
++  for (int axis = 0; axis < 3; ++axis) {
++    TsdfVoxel* lower_voxel = nullptr;
++    TsdfVoxel* upper_voxel = nullptr;
++    int lower_offset_vox = 0;
++    int upper_offset_vox = 0;
++
++    // Search beyond a one-voxel observation hole before giving up. This is
++    // common on oblique OAK-D ramp surfaces and at TSDF block boundaries.
++    for (int offset_vox = 1; offset_vox <= kMaxSearchOffsetVox; ++offset_vox) {
++      Vector3f offset = Vector3f::Zero();
++      offset(axis) = voxel_size * offset_vox;
++      TsdfVoxel* candidate_voxel = nullptr;
++      if (lower_voxel == nullptr &&
++          getVoxelAtPosition(tsdf_block_hash, center - offset, block_size,
++                             &candidate_voxel) &&
++          candidate_voxel->weight >= min_weight) {
++        lower_voxel = candidate_voxel;
++        lower_offset_vox = offset_vox;
++      }
++      candidate_voxel = nullptr;
++      if (upper_voxel == nullptr &&
++          getVoxelAtPosition(tsdf_block_hash, center + offset, block_size,
++                             &candidate_voxel) &&
++          candidate_voxel->weight >= min_weight) {
++        upper_voxel = candidate_voxel;
++        upper_offset_vox = offset_vox;
++      }
++    }
++
++    if (!calculateTsdfGradientComponent(
++            center_voxel.distance, lower_voxel != nullptr,
++            lower_voxel == nullptr ? 0.0f : lower_voxel->distance,
++            lower_offset_vox, upper_voxel != nullptr,
++            upper_voxel == nullptr ? 0.0f : upper_voxel->distance,
++            upper_offset_vox, &(*gradient)(axis))) {
++      return false;
++    }
++  }
++  return true;
++}
++
+ struct OccupancySiteFunctor {
+   __device__ bool isVoxelObserved(const OccupancyVoxel& occupancy_voxel) const {
+     constexpr float kEps = 1e-4;
+@@ -672,6 +767,15 @@ TsdfSiteFunctor EsdfIntegrator::getSiteFunctor(const TsdfLayer& layer) {
+   functor.min_weight = tsdf_min_weight_;
+   functor.max_site_distance_m =
+       max_tsdf_site_distance_vox_ * layer.voxel_size();
++  functor.slope_filter_enabled = max_traversable_slope_deg_ < 90.0f;
++  functor.min_traversable_normal_z = min_traversable_normal_z_;
++  functor.max_reversed_traversable_normal_z =
++      max_reversed_traversable_normal_z_;
++  functor.min_reversed_traversable_slope_tangent =
++      min_reversed_traversable_slope_tangent_;
++  functor.max_traversable_slope_tangent = max_traversable_slope_tangent_;
++  functor.traversable_elevation_height_tolerance_m =
++      traversable_elevation_height_tolerance_m_;
+   return functor;
+ }
+ 
+@@ -778,6 +882,10 @@ __global__ void markSitesInSliceKernel(
+   // First port-of-call is squashing a 3D band of the surface reconstruction to
+   // 2D. First we allocating 2D arrays for the output.
+   __shared__ bool observed[kVoxelsPerSide][kVoxelsPerSide];
++  __shared__ int traversable_surface_count[kVoxelsPerSide][kVoxelsPerSide];
++  __shared__ int nontraversable_surface_count[kVoxelsPerSide][kVoxelsPerSide];
++  __shared__ int unreliable_surface_count[kVoxelsPerSide][kVoxelsPerSide];
++  __shared__ float minimum_surface_height_m[kVoxelsPerSide][kVoxelsPerSide];
+   __shared__ typename SharedVoxel<VoxelType>::type voxel_slice[kVoxelsPerSide]
+                                                               [kVoxelsPerSide];
+   __shared__ Index3D esdf_slice_block_index;
+@@ -788,6 +896,10 @@ __global__ void markSitesInSliceKernel(
+   // Called by: x*y threads - one plane in the ThreadBlock
+   if (vertical_block_idx_offset == 0) {
+     observed[voxel_idx_x][voxel_idx_y] = false;
++    traversable_surface_count[voxel_idx_x][voxel_idx_y] = 0;
++    nontraversable_surface_count[voxel_idx_x][voxel_idx_y] = 0;
++    unreliable_surface_count[voxel_idx_x][voxel_idx_y] = 0;
++    minimum_surface_height_m[voxel_idx_x][voxel_idx_y] = 1.0e10f;
+     if constexpr (std::is_same<TsdfVoxel, VoxelType>::value) {
+       // NOTE(alexmillane): We don't use the weight in the slice, so we don't
+       // initialize it.
+@@ -872,6 +984,63 @@ __global__ void markSitesInSliceKernel(
+         observed[voxel_idx_x][voxel_idx_y] = true;
+         const bool is_freespace = isVoxelFreespace(
+             freespace_block_ptr, dim3(voxel_idx_x, voxel_idx_y, i));
++        if constexpr (std::is_same<TsdfVoxel, VoxelType>::value) {
++          if (!is_freespace && site_functor.slope_filter_enabled &&
++              site_functor.isVoxelNearSurface(*voxel_ptr)) {
++            const float voxel_size = block_size / kVoxelsPerSide;
++            const Vector3f voxel_center =
++                getCenterPositionFromBlockIndexAndVoxelIndex(
++                    block_size, block_in_column_index,
++                    Index3D(voxel_idx_x, voxel_idx_y, i));
++            TsdfVoxel* lower_voxel = nullptr;
++            if (getVoxelAtPosition(
++                    input_layer_block_hash,
++                    voxel_center - Vector3f(0.0f, 0.0f, voxel_size),
++                    block_size, &lower_voxel) &&
++                lower_voxel->weight >= site_functor.min_weight) {
++              float crossing_height_m = 0.0f;
++              if (calculateTsdfZeroCrossingHeight(
++                      voxel_center.z() - voxel_size, lower_voxel->distance,
++                      voxel_center.z(), voxel_ptr->distance,
++                      &crossing_height_m)) {
++                atomicMinFloat(
++                    &minimum_surface_height_m[voxel_idx_x][voxel_idx_y],
++                    crossing_height_m);
++              }
++            }
++          }
++          const bool is_surface_voxel =
++              !is_freespace && site_functor.slope_filter_enabled &&
++              site_functor.isVoxelInsideObject(*voxel_ptr) &&
++              site_functor.isVoxelNearSurface(*voxel_ptr);
++          if (is_surface_voxel) {
++            Vector3f gradient = Vector3f::Zero();
++            const bool gradient_valid = getTsdfGradient(
++                input_layer_block_hash, block_size, block_in_column_index,
++                Index3D(voxel_idx_x, voxel_idx_y, i), *voxel_ptr,
++                site_functor.min_weight, &gradient);
++            constexpr float kMinReliableGradientVox = 0.1f;
++            const float min_reliable_gradient =
++                kMinReliableGradientVox * block_size / kVoxelsPerSide;
++            const bool gradient_reliable =
++                gradient_valid &&
++                gradient.squaredNorm() >=
++                    min_reliable_gradient * min_reliable_gradient;
++            if (!gradient_reliable) {
++              atomicAdd(
++                  &unreliable_surface_count[voxel_idx_x][voxel_idx_y], 1);
++            } else if (isTsdfSurfaceGradientTraversable(
++                           gradient,
++                           site_functor.min_traversable_normal_z,
++                           site_functor.max_reversed_traversable_normal_z)) {
++              atomicAdd(
++                  &traversable_surface_count[voxel_idx_x][voxel_idx_y], 1);
++            } else {
++              atomicAdd(
++                  &nontraversable_surface_count[voxel_idx_x][voxel_idx_y], 1);
++            }
++          }
++        }
+         site_functor.updateSquashedExtremumAtomic(
+             *voxel_ptr, is_freespace, &voxel_slice[voxel_idx_x][voxel_idx_y]);
+       }
+@@ -884,6 +1053,71 @@ __global__ void markSitesInSliceKernel(
+   // Ok now we compare the new and old values and decide what to output.
+   // Do this once for each voxel in the x/y plane.
+   if (vertical_block_idx_offset == 0) {
++    if constexpr (std::is_same<TsdfVoxel, VoxelType>::value) {
++      int valid_elevation_neighbor_count = 0;
++      int discontinuous_elevation_neighbor_count = 0;
++      bool has_minimum_elevation_slope = false;
++      const float center_height_m =
++          minimum_surface_height_m[voxel_idx_x][voxel_idx_y];
++      if (center_height_m < 1.0e9f) {
++        const float voxel_size = block_size / kVoxelsPerSide;
++        for (int offset_x = -1; offset_x <= 1; ++offset_x) {
++          for (int offset_y = -1; offset_y <= 1; ++offset_y) {
++            if (offset_x == 0 && offset_y == 0) {
++              continue;
++            }
++            const int neighbor_x = voxel_idx_x + offset_x;
++            const int neighbor_y = voxel_idx_y + offset_y;
++            if (neighbor_x < 0 || neighbor_x >= kVoxelsPerSide ||
++                neighbor_y < 0 || neighbor_y >= kVoxelsPerSide) {
++              continue;
++            }
++            const float neighbor_height_m =
++                minimum_surface_height_m[neighbor_x][neighbor_y];
++            if (neighbor_height_m >= 1.0e9f) {
++              continue;
++            }
++            ++valid_elevation_neighbor_count;
++            const float horizontal_distance_m =
++                voxel_size * sqrtf(static_cast<float>(
++                                 offset_x * offset_x + offset_y * offset_y));
++            const float height_difference_m =
++                neighbor_height_m - center_height_m;
++            if (!isElevationDifferenceWithinSlopeLimit(
++                    height_difference_m, horizontal_distance_m,
++                    site_functor.max_traversable_slope_tangent,
++                    site_functor.traversable_elevation_height_tolerance_m)) {
++              ++discontinuous_elevation_neighbor_count;
++            }
++            if (fabsf(height_difference_m) >=
++                site_functor.min_reversed_traversable_slope_tangent *
++                    horizontal_distance_m) {
++              has_minimum_elevation_slope = true;
++            }
++          }
++        }
++      }
++      const bool rescue_from_elevation =
++          shouldRescueTsdfColumnFromElevation(
++              valid_elevation_neighbor_count,
++              discontinuous_elevation_neighbor_count,
++              has_minimum_elevation_slope,
++              nontraversable_surface_count[voxel_idx_x][voxel_idx_y],
++              unreliable_surface_count[voxel_idx_x][voxel_idx_y]);
++      // Use consensus so that a single noisy or missing normal does not turn a
++      // continuous ramp into an obstacle. Steep/downward evidence still keeps
++      // the column occupied unless traversable evidence clearly outnumbers it.
++      if (site_functor.slope_filter_enabled &&
++          (shouldClearTraversableTsdfColumn(
++               traversable_surface_count[voxel_idx_x][voxel_idx_y],
++               nontraversable_surface_count[voxel_idx_x][voxel_idx_y],
++               unreliable_surface_count[voxel_idx_x][voxel_idx_y],
++               discontinuous_elevation_neighbor_count) ||
++           rescue_from_elevation)) {
++        voxel_slice[voxel_idx_x][voxel_idx_y].distance =
++            site_functor.max_site_distance_m;
++      }
++    }
+     // Get the correct voxel for this index.
+     const VoxelType* voxel_ptr = &voxel_slice[voxel_idx_x][voxel_idx_y];
+     EsdfVoxel* esdf_voxel_ptr =
+diff --git a/nvblox/src/mapper/multi_mapper.cpp b/nvblox/src/mapper/multi_mapper.cpp
+index 30a7118a689300cb71c041ba3ec9be98ba3a9db4..d544489bf40b5619b884b4bd889f5ea3fee112d1 100644
+--- a/nvblox/src/mapper/multi_mapper.cpp
++++ b/nvblox/src/mapper/multi_mapper.cpp
+@@ -27,6 +27,20 @@ limitations under the License.
+ 
+ namespace nvblox {
+ 
++float getGroundPlaneSlopeDeg(const Plane& ground_plane) {
++  constexpr float kRadiansToDegrees = 57.29577951308232f;
++  const float normal_z =
++      std::min(1.0f, std::max(0.0f, std::fabs(ground_plane.normal().z())));
++  return std::acos(normal_z) * kRadiansToDegrees;
++}
++
++bool isGroundPlaneWithinSlopeLimit(const Plane& ground_plane,
++                                   float max_slope_deg) {
++  constexpr float kAngleToleranceDeg = 1e-4f;
++  return getGroundPlaneSlopeDeg(ground_plane) <=
++         max_slope_deg + kAngleToleranceDeg;
++}
++
+ // The background mapper is handling static objects and freespace (with
+ // occupancy or tsdf)
+ ProjectiveLayerType findBackgroundLayerType(MappingType mapping_type) {
+@@ -117,7 +131,27 @@ MultiMapper::MultiMapper(float voxel_size_m, MappingType mapping_type,
+ 
+ void MultiMapper::setMultiMapperParams(
+     const MultiMapperParams& multi_mapper_params) {
++  CHECK_GE(multi_mapper_params.max_ground_plane_slope_deg, 0.0f);
++  CHECK_LE(multi_mapper_params.max_ground_plane_slope_deg, 90.0f);
++  CHECK_GE(multi_mapper_params.min_reversed_traversable_slope_deg, 0.0f);
++  CHECK_LE(multi_mapper_params.min_reversed_traversable_slope_deg, 90.0f);
++  CHECK_GE(
++      multi_mapper_params.traversable_elevation_height_tolerance_m, 0.0f);
+   params_ = multi_mapper_params;
++  background_mapper_->esdf_integrator().max_traversable_slope_deg(
++      params_.max_ground_plane_slope_deg);
++  foreground_mapper_->esdf_integrator().max_traversable_slope_deg(
++      params_.max_ground_plane_slope_deg);
++  background_mapper_->esdf_integrator().min_reversed_traversable_slope_deg(
++      params_.min_reversed_traversable_slope_deg);
++  foreground_mapper_->esdf_integrator().min_reversed_traversable_slope_deg(
++      params_.min_reversed_traversable_slope_deg);
++  background_mapper_->esdf_integrator()
++      .traversable_elevation_height_tolerance_m(
++          params_.traversable_elevation_height_tolerance_m);
++  foreground_mapper_->esdf_integrator()
++      .traversable_elevation_height_tolerance_m(
++          params_.traversable_elevation_height_tolerance_m);
+   ground_plane_estimator().ground_points_candidates_min_z_m(
+       params_.ground_plane_estimator_params.ground_points_candidates_min_z_m);
+   ground_plane_estimator().ground_points_candidates_max_z_m(
+@@ -163,6 +197,17 @@ void MultiMapper::updateEsdf() {
+     // map.
+     const TsdfLayer& tsdf_layer = background_mapper_->tsdf_layer();
+     maybe_ground_plane = ground_plane_estimator_.computeGroundPlane(tsdf_layer);
++    if (maybe_ground_plane.has_value() &&
++        !isGroundPlaneWithinSlopeLimit(
++            maybe_ground_plane.value(), params_.max_ground_plane_slope_deg)) {
++      const float slope_deg = getGroundPlaneSlopeDeg(maybe_ground_plane.value());
++      LOG_EVERY_N(WARNING, 100)
++          << "Rejecting fitted ground plane with slope " << slope_deg
++          << " deg because it exceeds max_ground_plane_slope_deg="
++          << params_.max_ground_plane_slope_deg
++          << ". Using the fixed-height ESDF obstacle slice.";
++      maybe_ground_plane = std::nullopt;
++    }
+   }
+ 
+   updateEsdfOfMapper(background_mapper_, maybe_ground_plane);
+@@ -232,6 +277,13 @@ parameters::ParameterTreeNode MultiMapper::getParameterTree(
+   return ParameterTreeNode(
+       name, {ParameterTreeNode("connected_mask_component_size_threshold",
+                                params_.connected_mask_component_size_threshold),
++             ParameterTreeNode("max_ground_plane_slope_deg",
++                               params_.max_ground_plane_slope_deg),
++             ParameterTreeNode("min_reversed_traversable_slope_deg",
++                               params_.min_reversed_traversable_slope_deg),
++             ParameterTreeNode(
++                 "traversable_elevation_height_tolerance_m",
++                 params_.traversable_elevation_height_tolerance_m),
+              background_mapper_->getParameterTree("background_mapper"),
+              foreground_mapper_->getParameterTree("foreground_mapper"),
+              image_masker_.getParameterTree(),
+diff --git a/nvblox/tests/test_esdf_integrator_slicing.cu b/nvblox/tests/test_esdf_integrator_slicing.cu
+index 23b5709cd0d9151dcbb482468158480398e87eee..c19f8c69b8b82eb166a10201d818c52ae0dd56f4 100644
+--- a/nvblox/tests/test_esdf_integrator_slicing.cu
++++ b/nvblox/tests/test_esdf_integrator_slicing.cu
+@@ -30,6 +30,103 @@ using namespace nvblox;
+ 
+ constexpr bool kOutputDebug = false;
+ 
++TEST(EsdfTraversableSlopeTest, ClassifiesLocalSurfaceGradients) {
++  constexpr float kDegreesToRadians = 0.017453292519943295f;
++  constexpr float kMaxSlopeDeg = 45.0f;
++  const float min_traversable_normal_z =
++      std::cos(kMaxSlopeDeg * kDegreesToRadians);
++  const float max_reversed_traversable_normal_z =
++      std::cos(5.0f * kDegreesToRadians);
++  const auto gradient_for_slope = [=](float slope_deg) {
++    const float slope_rad = slope_deg * kDegreesToRadians;
++    return Vector3f(std::sin(slope_rad), 0.0f, std::cos(slope_rad));
++  };
++
++  EXPECT_TRUE(isTsdfSurfaceGradientTraversable(
++      gradient_for_slope(44.9f), min_traversable_normal_z,
++      max_reversed_traversable_normal_z));
++  EXPECT_TRUE(isTsdfSurfaceGradientTraversable(
++      gradient_for_slope(45.0f), min_traversable_normal_z,
++      max_reversed_traversable_normal_z));
++  EXPECT_FALSE(isTsdfSurfaceGradientTraversable(
++      gradient_for_slope(45.1f), min_traversable_normal_z,
++      max_reversed_traversable_normal_z));
++  EXPECT_TRUE(isTsdfSurfaceGradientTraversable(
++      -gradient_for_slope(20.0f), min_traversable_normal_z,
++      max_reversed_traversable_normal_z));
++  EXPECT_FALSE(isTsdfSurfaceGradientTraversable(
++      -gradient_for_slope(2.0f), min_traversable_normal_z,
++      max_reversed_traversable_normal_z));
++  EXPECT_FALSE(isTsdfSurfaceGradientTraversable(
++      -gradient_for_slope(45.1f), min_traversable_normal_z,
++      max_reversed_traversable_normal_z));
++  EXPECT_FALSE(isTsdfSurfaceGradientTraversable(
++      Vector3f::Zero(), min_traversable_normal_z,
++      max_reversed_traversable_normal_z));
++}
++
++TEST(EsdfTraversableSlopeTest, UsesSparseGradientFallbacks) {
++  float gradient = 0.0f;
++
++  EXPECT_TRUE(calculateTsdfGradientComponent(
++      2.0f, true, 0.0f, 2, true, 5.0f, 1, &gradient));
++  EXPECT_FLOAT_EQ(gradient, 5.0f / 3.0f);
++
++  EXPECT_TRUE(calculateTsdfGradientComponent(
++      2.0f, false, 0.0f, 0, true, 6.0f, 2, &gradient));
++  EXPECT_FLOAT_EQ(gradient, 2.0f);
++
++  EXPECT_TRUE(calculateTsdfGradientComponent(
++      2.0f, true, -2.0f, 2, false, 0.0f, 0, &gradient));
++  EXPECT_FLOAT_EQ(gradient, 2.0f);
++
++  EXPECT_FALSE(calculateTsdfGradientComponent(
++      2.0f, false, 0.0f, 0, false, 0.0f, 0, &gradient));
++}
++
++TEST(EsdfTraversableSlopeTest, ExtractsViewIndependentElevationCrossings) {
++  float crossing_height_m = 0.0f;
++  EXPECT_TRUE(calculateTsdfZeroCrossingHeight(
++      0.10f, 0.02f, 0.14f, -0.02f, &crossing_height_m));
++  EXPECT_NEAR(crossing_height_m, 0.12f, 1e-6f);
++
++  EXPECT_TRUE(calculateTsdfZeroCrossingHeight(
++      0.10f, -0.02f, 0.14f, 0.02f, &crossing_height_m));
++  EXPECT_NEAR(crossing_height_m, 0.12f, 1e-6f);
++
++  EXPECT_FALSE(calculateTsdfZeroCrossingHeight(
++      0.10f, 0.02f, 0.14f, 0.01f, &crossing_height_m));
++}
++
++TEST(EsdfTraversableSlopeTest, RejectsStepElevationRescue) {
++  constexpr float kVoxelSizeM = 0.035f;
++  constexpr float kMaxSlopeTangent = 1.0f;
++  constexpr float kHeightToleranceM = 0.02f;
++
++  EXPECT_TRUE(isElevationDifferenceWithinSlopeLimit(
++      0.03f, kVoxelSizeM, kMaxSlopeTangent, kHeightToleranceM));
++  EXPECT_FALSE(isElevationDifferenceWithinSlopeLimit(
++      0.10f, kVoxelSizeM, kMaxSlopeTangent, kHeightToleranceM));
++
++  EXPECT_TRUE(shouldRescueTsdfColumnFromElevation(3, 0, true, 0, 2));
++  EXPECT_FALSE(shouldRescueTsdfColumnFromElevation(3, 1, true, 0, 2));
++  EXPECT_FALSE(shouldRescueTsdfColumnFromElevation(3, 0, false, 0, 2));
++  EXPECT_FALSE(shouldRescueTsdfColumnFromElevation(3, 0, true, 1, 2));
++  EXPECT_FALSE(shouldRescueTsdfColumnFromElevation(1, 0, true, 0, 2));
++}
++
++TEST(EsdfTraversableSlopeTest, RequiresConsistentColumnEvidence) {
++  EXPECT_TRUE(shouldClearTraversableTsdfColumn(1, 0, 0, 0));
++  EXPECT_TRUE(shouldClearTraversableTsdfColumn(2, 1, 1, 0));
++  EXPECT_TRUE(shouldClearTraversableTsdfColumn(1, 0, 1, 0));
++
++  EXPECT_FALSE(shouldClearTraversableTsdfColumn(0, 0, 0, 0));
++  EXPECT_FALSE(shouldClearTraversableTsdfColumn(1, 1, 0, 0));
++  EXPECT_FALSE(shouldClearTraversableTsdfColumn(1, 0, 2, 0));
++  EXPECT_FALSE(shouldClearTraversableTsdfColumn(1, 2, 0, 0));
++  EXPECT_FALSE(shouldClearTraversableTsdfColumn(2, 0, 0, 1));
++}
++
+ // Just exposes the internal slicing methods for testing.
+ class TestEsdfIntegrator : public EsdfIntegrator {
+  public:
+diff --git a/nvblox/tests/test_multi_mapper.cpp b/nvblox/tests/test_multi_mapper.cpp
+index fe4e1e31f97e85b196d51969f7cf1610b6e00aac..845585c0646e8b67a6be7bec18fb2e9ec736503a 100644
+--- a/nvblox/tests/test_multi_mapper.cpp
++++ b/nvblox/tests/test_multi_mapper.cpp
+@@ -13,9 +13,10 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ See the License for the specific language governing permissions and
+ limitations under the License.
+ */
++#include <cmath>
++#include <filesystem>
+ #include <gflags/gflags.h>
+ #include <gtest/gtest.h>
+-#include <filesystem>
+ 
+ #include "nvblox/datasets/3dmatch.h"
+ #include "nvblox/mapper/multi_mapper.h"
+@@ -25,6 +26,32 @@ using namespace nvblox;
+ 
+ constexpr float kFloatEpsilon = 1e-6;
+ 
++namespace {
++
++Plane makeGroundPlaneWithSlopeDeg(float slope_deg) {
++  constexpr float kDegreesToRadians = 0.017453292519943295f;
++  const float slope_rad = slope_deg * kDegreesToRadians;
++  return Plane(
++      Vector3f(std::sin(slope_rad), 0.0f, std::cos(slope_rad)), 0.0f);
++}
++
++}  // namespace
++
++TEST(MultiMapperGroundPlaneSlopeTest, EnforcesInclusiveSlopeLimit) {
++  constexpr float kMaxSlopeDeg = 45.0f;
++
++  EXPECT_TRUE(isGroundPlaneWithinSlopeLimit(
++      makeGroundPlaneWithSlopeDeg(44.9f), kMaxSlopeDeg));
++  EXPECT_TRUE(isGroundPlaneWithinSlopeLimit(
++      makeGroundPlaneWithSlopeDeg(45.0f), kMaxSlopeDeg));
++  EXPECT_FALSE(isGroundPlaneWithinSlopeLimit(
++      makeGroundPlaneWithSlopeDeg(45.1f), kMaxSlopeDeg));
++
++  const Plane downward_normal_plane(
++      -makeGroundPlaneWithSlopeDeg(30.0f).normal(), 0.0f);
++  EXPECT_NEAR(getGroundPlaneSlopeDeg(downward_normal_plane), 30.0f, 1e-4f);
++}
++
+ // MultiMapper child that gives the tests access to the internal
+ // functions.
+ class TestMultiMapper : public MultiMapper {
 diff --git a/nvblox/thirdparty/stdgpu/stdgpu.cmake b/nvblox/thirdparty/stdgpu/stdgpu.cmake
-index 937dbd6..705b48e 100644
+index 937dbd6c6ee228f237fb566462453e4bcb23ec04..705b48e9100fb3d5bd54d4f0dc29f886f3b68749 100644
 --- a/nvblox/thirdparty/stdgpu/stdgpu.cmake
 +++ b/nvblox/thirdparty/stdgpu/stdgpu.cmake
 @@ -22,7 +22,9 @@ else()
@@ -15,7 +817,7 @@ index 937dbd6..705b48e 100644
      ext_stdgpu
 diff --git a/nvblox/thirdparty/stdgpu/stdgpu_fix_cuda13_2_proxy_reference.patch b/nvblox/thirdparty/stdgpu/stdgpu_fix_cuda13_2_proxy_reference.patch
 new file mode 100644
-index 0000000..2baba32
+index 0000000000000000000000000000000000000000..2baba3253253d76cc41abb5cecd2895c74e76159
 --- /dev/null
 +++ b/nvblox/thirdparty/stdgpu/stdgpu_fix_cuda13_2_proxy_reference.patch
 @@ -0,0 +1,34 @@
@@ -52,18 +854,4 @@ index 0000000..2baba32
 + 
 + } // namespace thrust::detail
 + 
-+#endif // STDGPU_ITERATORDETAIL_H
-diff --git a/nvblox/include/nvblox/gpu_hash/internal/cuda/impl/gpu_hash_interface_impl.cuh b/nvblox/include/nvblox/gpu_hash/internal/cuda/impl/gpu_hash_interface_impl.cuh
-index 894373a..25a32bc 100644
---- a/nvblox/include/nvblox/gpu_hash/internal/cuda/impl/gpu_hash_interface_impl.cuh
-+++ b/nvblox/include/nvblox/gpu_hash/internal/cuda/impl/gpu_hash_interface_impl.cuh
-@@ -50,8 +50,8 @@ __global__ void setToZero(Index3DDeviceHashMapType<BlockType> block_hash) {
-   int idx = threadIdx.x + blockIdx.x * blockDim.x;
- 
-   if (idx < block_hash.max_size()) {
--    memset(block_hash.begin() + idx, 0,
--           sizeof(thrust::pair<Index3D, BlockType*>));
-+    ::memset(block_hash.begin() + idx, 0,
-+             sizeof(thrust::pair<Index3D, BlockType*>));
-   }
- }
++ #endif // STDGPU_ITERATORDETAIL_H

@@ -1,5 +1,5 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index e091f3a..cb92a41 100644
+index e091f3a484e2d81a03efbd9e85a6544e015e7a42..cb92a41616d0dae0c6e98d82f1339b14c1c3a078 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -57,10 +57,10 @@ find_package(sensor_msgs REQUIRED)
@@ -25,8 +25,70 @@ index e091f3a..cb92a41 100644
  )
  
  # Thirdparty libraries
+diff --git a/config/mid360.yaml b/config/mid360.yaml
+index b940253e33eb5ab573b5e839b95fecbb6164a753..790e4e8fbb0aef1b884b9c9264de73c2a29d6b08 100644
+--- a/config/mid360.yaml
++++ b/config/mid360.yaml
+@@ -30,7 +30,49 @@
+             b_gyr_cov: 0.0001
+             fov_degree:    360.0
+             det_range:     100.0
+-            extrinsic_est_en:  true      # true: enable the online estimation of IMU-LiDAR extrinsic
++            # FAST-LIO IMU-LiDAR extrinsic.
++            #
++            # This block is used only by FAST-LIO's lidar-inertial odometry
++            # front-end. It describes the rigid transform between the LiDAR
++            # measurement frame and the IMU frame used by FAST-LIO.
++            #
++            # Do not confuse this with the UAV mounting transform:
++            #
++            #   base_link -> mid360_link
++            #
++            # The UAV mounting transform is configured by launch arguments in
++            # uav_bringup:
++            #
++            #   mid360_x mid360_y mid360_z mid360_yaw mid360_pitch mid360_roll
++            #
++            # In short:
++            #   - mid360_x/y/z/yaw/pitch/roll:
++            #       where the whole MID360 is installed on the aircraft body.
++            #   - extrinsic_T/extrinsic_R below:
++            #       how FAST-LIO relates its LiDAR frame and IMU frame.
++            #
++            # extrinsic_est_en:
++            #   - true: FAST-LIO estimates/refines the IMU-LiDAR extrinsic online.
++            #     This is useful while bringing up a new sensor setup or when the
++            #     exact IMU-LiDAR calibration is not trusted yet.
++            #   - false: FAST-LIO trusts the fixed extrinsic_T/extrinsic_R below.
++            #     Use this only after the IMU-LiDAR extrinsic is calibrated and
++            #     verified.
++            #
++            # extrinsic_T:
++            #   Translation vector between FAST-LIO's LiDAR and IMU frames, in
++            #   meters. Keep the order exactly as expected by FAST-LIO.
++            #
++            # extrinsic_R:
++            #   3x3 row-major rotation matrix between FAST-LIO's LiDAR and IMU
++            #   frames. Identity means the two frames are assumed to have the same
++            #   orientation.
++            #
++            # If this block is wrong, FAST-LIO odometry can drift, tilt, oscillate,
++            # or fail during initialization. If the UAV mounting transform is wrong,
++            # the LIO may still run, but /mid360/points and obstacle positions will
++            # be placed incorrectly relative to base_link.
++            extrinsic_est_en:  true
+             extrinsic_T: [ -0.011, -0.02329, 0.04412 ]
+             extrinsic_R: [ 1., 0., 0.,
+                             0., 1., 0.,
+@@ -47,4 +89,4 @@
+         pcd_save:
+             pcd_save_en: true
+             interval: -1                 # how many LiDAR frames saved in each pcd file; 
+-                                        # -1 : all frames will be saved in ONE pcd file, may lead to memory crash when having too much frames.
+\ No newline at end of file
++                                        # -1 : all frames will be saved in ONE pcd file, may lead to memory crash when having too much frames.
 diff --git a/package.xml b/package.xml
-index 8c39e18..729bde8 100644
+index 8c39e184f4d447bf74a16426455bfa8c6b6b57ec..729bde8af678c24d2400e35d2da1593043a9291c 100644
 --- a/package.xml
 +++ b/package.xml
 @@ -25,7 +25,7 @@

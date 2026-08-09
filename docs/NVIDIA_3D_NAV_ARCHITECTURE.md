@@ -116,7 +116,11 @@ git submodule update --init --recursive
 ./scripts/build_nvidia_3d_nav_deps.sh
 ```
 
-`patches/vendor/` 用于保存对上游/vendor 代码的本地适配，避免直接修改上游源码而无法追踪。
+`patches/vendor/` 保存对上游/vendor 代码的完整本地适配。顶层仓库故意把各子模块
+gitlink 固定在官方远端可获取的基线提交，而不是本地自定义提交；补丁基线和完整清单见
+`patches/vendor/README.md`。`apply_vendor_patches.sh` 会先核对每个子模块的精确 SHA，
+再应用补丁，重复运行时会识别已经应用的状态。这样新机器只需拉取主仓库和官方
+submodule，就能重建相同源码，不依赖未推送的子模块提交对象。
 
 ## 验证命令
 

@@ -1,20 +1,171 @@
 diff --git a/nvblox_examples/COLCON_IGNORE b/nvblox_examples/COLCON_IGNORE
 new file mode 100644
-index 0000000..8b13789
+index 0000000000000000000000000000000000000000..8b137891791fe96927ad78e64b0aad7bded08bdc
 --- /dev/null
 +++ b/nvblox_examples/COLCON_IGNORE
 @@ -0,0 +1 @@
 +
+diff --git a/nvblox_ros/include/nvblox_ros/node_params.hpp b/nvblox_ros/include/nvblox_ros/node_params.hpp
+index 87d9cf65687a239f1d2a676618a607f2380389bf..394c761fc72cd7aa593ef321bda22b7136dabc0c 100644
+--- a/nvblox_ros/include/nvblox_ros/node_params.hpp
++++ b/nvblox_ros/include/nvblox_ros/node_params.hpp
+@@ -109,6 +109,11 @@ constexpr Param<float>::Description kDistanceMapUnknownValuePessimistic{
+   "distance_map_unknown_value_pessimistic", -1000.0F,
+   "The distance inside the distance map for unknown value."};
+ 
++constexpr Param<float>::Description kOccupancyGridVisualizationZOffsetMParamDesc{
++  "occupancy_grid_visualization_z_offset_m", 0.0F,
++  "Z offset applied only to the debug OccupancyGrid origin. DistanceMapSlice output used by "
++  "navigation is not shifted."};
++
+ // ======= LIDAR PARAMS =======
+ constexpr Param<int>::Description kLidarWidthParamDesc{"lidar_width", 1800,
+   "Width of the LIDAR scan, in number of beams. Default works for the *VLP16*."};
+@@ -389,6 +394,8 @@ public:
+   Param<float> clear_map_outside_radius_rate_hz{kClearMapOutsideRadiusRateHzParamDesc};
+   Param<float> esdf_and_gradients_unobserved_value{kEsdfAndGradientsUnobservedValueParamDesc};
+   Param<float> map_clearing_radius_m{kMapClearingRadiusMParamDesc};
++  Param<float> occupancy_grid_visualization_z_offset_m{
++    kOccupancyGridVisualizationZOffsetMParamDesc};
+ };
+ 
+ /// Container for all node params of the fuser node.
+diff --git a/nvblox_ros/src/lib/mapper_initialization.cpp b/nvblox_ros/src/lib/mapper_initialization.cpp
+index ac02e002b9d29988849d26baf01084271914425c..7776d461623975327925e7492a8aaac3e98ce1c1 100644
+--- a/nvblox_ros/src/lib/mapper_initialization.cpp
++++ b/nvblox_ros/src/lib/mapper_initialization.cpp
+@@ -113,6 +113,9 @@ void declareMultiMapperParameters(rclcpp::Node * node)
+   declareParameter<int>("multi_mapper", kConnectedMaskComponentSizeThresholdParamDesc, node);
+   declareParameter<bool>("multi_mapper", kRemoveSmallConnectedComponentsParamDesc, node);
+   declareParameter<bool>("multi_mapper", kExperimentalUseGroundPlaneEstimationDesc, node);
++  declareParameter<float>("multi_mapper", kMaxGroundPlaneSlopeDegDesc, node);
++  declareParameter<float>("multi_mapper", kMinReversedTraversableSlopeDegDesc, node);
++  declareParameter<float>("multi_mapper", kTraversableElevationHeightToleranceMDesc, node);
+   declareParameter<float>("multi_mapper", kGroundPointsCandidatesMinZMDesc, node);
+   declareParameter<float>("multi_mapper", kGroundPointsCandidatesMaxZMDesc, node);
+   declareParameter<float>("multi_mapper", kRansacDistanceThresholdMDesc, node);
+@@ -134,6 +137,15 @@ MultiMapperParams getMultiMapperParamsFromROS(rclcpp::Node * node)
+   set_parameter<bool>(
+     "multi_mapper", kExperimentalUseGroundPlaneEstimationDesc.name,
+     [&](auto value) {params.experimental_use_ground_plane_estimation = value;}, node);
++  set_parameter<float>(
++    "multi_mapper", kMaxGroundPlaneSlopeDegDesc.name,
++    [&](auto value) {params.max_ground_plane_slope_deg = value;}, node);
++  set_parameter<float>(
++    "multi_mapper", kMinReversedTraversableSlopeDegDesc.name,
++    [&](auto value) {params.min_reversed_traversable_slope_deg = value;}, node);
++  set_parameter<float>(
++    "multi_mapper", kTraversableElevationHeightToleranceMDesc.name,
++    [&](auto value) {params.traversable_elevation_height_tolerance_m = value;}, node);
+   set_parameter<float>(
+     "multi_mapper", kGroundPointsCandidatesMinZMDesc.name,
+     [&](auto value) {
+diff --git a/nvblox_ros/src/lib/node_params.cpp b/nvblox_ros/src/lib/node_params.cpp
+index ff8ccd666a53e8ad9fe7fe4cb506a3cb4475423d..f723398e04713dd66cdb9ab22e1adbe3c6367a4a 100644
+--- a/nvblox_ros/src/lib/node_params.cpp
++++ b/nvblox_ros/src/lib/node_params.cpp
+@@ -168,6 +168,7 @@ void initializeNvbloxNodeParams(
+   initParam<float>(node, &params->clear_map_outside_radius_rate_hz, parameter_tree);
+   initParam<float>(node, &params->map_clearing_radius_m, parameter_tree);
+   initParam<float>(node, &params->esdf_and_gradients_unobserved_value, parameter_tree);
++  initParam<float>(node, &params->occupancy_grid_visualization_z_offset_m, parameter_tree);
+ }
+ 
+ void initializeFuserNodeParams(
+diff --git a/nvblox_ros/src/lib/nvblox_node.cpp b/nvblox_ros/src/lib/nvblox_node.cpp
+index 05a09bcf7fa529b54fcd0ee38b7c4e115799e621..75e041d07354c9fd9850ffecd63a9a0f44e43177 100644
+--- a/nvblox_ros/src/lib/nvblox_node.cpp
++++ b/nvblox_ros/src/lib/nvblox_node.cpp
+@@ -906,7 +906,11 @@ void NvbloxNode::publishOccupancyGridMsg(
+   occupancy_grid_msg.info.height = height;
+   occupancy_grid_msg.info.origin.position.x = origin_x_position;
+   occupancy_grid_msg.info.origin.position.y = origin_y_position;
+-  occupancy_grid_msg.info.origin.position.z = 0;
++  // This topic is a debug visualization. Keep the DistanceMapSlice consumed
++  // by Nav2 in the real map frame while allowing the RViz grid to be drawn
++  // below the reconstructed mesh for visual separation.
++  occupancy_grid_msg.info.origin.position.z =
++    params_.occupancy_grid_visualization_z_offset_m.get();
+   occupancy_grid_msg.info.origin.orientation.x = 0;
+   occupancy_grid_msg.info.origin.orientation.y = 0;
+   occupancy_grid_msg.info.origin.orientation.z = 0;
+diff --git a/nvblox_ros/test/unit_tests/test_node_params.cpp b/nvblox_ros/test/unit_tests/test_node_params.cpp
+index 69a047299d1c6bde6d86bc0afc223060e078a56c..ac5d90816f861ffa994b470a8e2112b6539a5eff 100644
+--- a/nvblox_ros/test/unit_tests/test_node_params.cpp
++++ b/nvblox_ros/test/unit_tests/test_node_params.cpp
+@@ -20,6 +20,7 @@
+ 
+ #include <rclcpp/rclcpp.hpp>
+ 
++#include "nvblox_ros/mapper_initialization.hpp"
+ #include "nvblox_ros/node_params.hpp"
+ 
+ namespace nvblox
+@@ -29,7 +30,7 @@ template<typename T> void testParam(rclcpp::Node * node, Param<T> & param)
+ {
+   T from_ros{};
+   const bool is_set = node->get_parameter<T>(param.description().name, from_ros);
+-  EXPECT_TRUE(is_set);
++  EXPECT_TRUE(is_set) << "Missing ROS parameter: " << param.description().name;
+   EXPECT_EQ(from_ros, param.get());
+ }
+ 
+@@ -51,6 +52,28 @@ void testParamSize(const int expected_param_size, const int actual_param_size)
+   }
+ }
+ 
++TEST(MultiMapperParams, LoadsGroundSlopeLimitFromRos) {
++  auto node = std::make_shared<rclcpp::Node>("node", rclcpp::NodeOptions());
++  declareMultiMapperParameters(node.get());
++
++  const auto result = node->set_parameter(
++    rclcpp::Parameter("multi_mapper.max_ground_plane_slope_deg", 45.0));
++  ASSERT_TRUE(result.successful);
++  const auto reversed_result = node->set_parameter(
++    rclcpp::Parameter("multi_mapper.min_reversed_traversable_slope_deg", 5.0));
++  ASSERT_TRUE(reversed_result.successful);
++  const auto elevation_result = node->set_parameter(rclcpp::Parameter(
++    "multi_mapper.traversable_elevation_height_tolerance_m", 0.02));
++  ASSERT_TRUE(elevation_result.successful);
++
++  const MultiMapperParams params = getMultiMapperParamsFromROS(node.get());
++  EXPECT_FLOAT_EQ(params.max_ground_plane_slope_deg.get(), 45.0f);
++  EXPECT_FLOAT_EQ(
++    params.min_reversed_traversable_slope_deg.get(), 5.0f);
++  EXPECT_FLOAT_EQ(
++    params.traversable_elevation_height_tolerance_m.get(), 0.02f);
++}
++
+ TEST(BaseNodeParams, initialize) {
+   constexpr size_t kExpectedParamSize = 480;
+   testParamSize(kExpectedParamSize, sizeof(BaseNodeParams));
+@@ -75,7 +98,7 @@ TEST(BaseNodeParams, initialize) {
+ }
+ 
+ TEST(NvbloxNodeParams, initialize) {
+-  constexpr size_t kExpectedParamSize = 2128;
++  constexpr size_t kExpectedParamSize = 2160;
+   testParamSize(kExpectedParamSize, sizeof(NvbloxNodeParams));
+ 
+   auto node = std::make_shared<rclcpp::Node>("node", rclcpp::NodeOptions());
+@@ -131,6 +154,7 @@ TEST(NvbloxNodeParams, initialize) {
+   testParam<float>(node.get(), params.clear_map_outside_radius_rate_hz);
+   testParam<float>(node.get(), params.esdf_and_gradients_unobserved_value);
+   testParam<float>(node.get(), params.map_clearing_radius_m);
++  testParam<float>(node.get(), params.occupancy_grid_visualization_z_offset_m);
+ }
+ 
+ TEST(FuserNodeParams, initialize) {
 diff --git a/nvblox_test/COLCON_IGNORE b/nvblox_test/COLCON_IGNORE
 new file mode 100644
-index 0000000..8b13789
+index 0000000000000000000000000000000000000000..8b137891791fe96927ad78e64b0aad7bded08bdc
 --- /dev/null
 +++ b/nvblox_test/COLCON_IGNORE
 @@ -0,0 +1 @@
 +
 diff --git a/nvblox_test_data/COLCON_IGNORE b/nvblox_test_data/COLCON_IGNORE
 new file mode 100644
-index 0000000..8b13789
+index 0000000000000000000000000000000000000000..8b137891791fe96927ad78e64b0aad7bded08bdc
 --- /dev/null
 +++ b/nvblox_test_data/COLCON_IGNORE
 @@ -0,0 +1 @@
