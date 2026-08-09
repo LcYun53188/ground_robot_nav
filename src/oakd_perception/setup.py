@@ -32,6 +32,7 @@ setup(
             "oakd_depth_node = oakd_perception.oakd_depth_node:main",
             "oakd_imu_node = oakd_perception.oakd_imu_node:main",
             "oakd_unified_node = oakd_perception.oakd_unified_node:main",
+            "traversable_depth_filter = oakd_perception.traversable_depth_filter:main",
         ],
     },
 )

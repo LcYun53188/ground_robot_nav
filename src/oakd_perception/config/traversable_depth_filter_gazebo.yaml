@@ -1,0 +1,13 @@
+traversable_depth_filter:
+  ros__parameters:
+    use_sim_time: true
+    depth_topic: /rgbd_camera/depth_image
+    camera_info_topic: /rgbd_camera/camera_info
+    output_topic: /rgbd_camera/depth_obstacles
+    base_frame: base_link
+    max_slope_deg: 45.0
+    min_surface_height_m: -0.40
+    max_surface_height_m: 0.14
+    remove_below_height_m: 0.11
+    max_neighbor_depth_jump_m: 0.06
+    mask_dilation_pixels: 3
