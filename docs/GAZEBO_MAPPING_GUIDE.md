@@ -10,9 +10,12 @@ nvblox 和 Nav2 建图闭环。该流程使用 Gazebo 真值里程计替代真�
 Gazebo RGB-D 相机
     -> /rgbd_camera/depth_image
     -> /rgbd_camera/camera_info
-    -> nvblox TSDF / ESDF
-    -> /nvblox_node/static_map_slice
+    +-> nvblox TSDF / ESDF
+    |   -> /nvblox_node/static_map_slice
+    +-> OAK-D cliff_detector
+        -> /perception/cliff_points
     -> Nav2 local/global costmap
+    -> collision_monitor cliff stop zone
 
 Gazebo 全向底盘里程计
     -> /visual_slam/tracking/odometry
@@ -47,6 +50,7 @@ source install/setup.bash
 - Gazebo 里程计与 TF bridge。
 - nvblox、Nav2 和 RViz。
 - OAK-D bridge 开启，MID360 bridge 关闭。
+- OAK-D 负障碍检测、Nav2 `cliff_layer` 和断崖紧急停车区开启。
 - 自动目标关闭，由操作者手动发送目标。
 
 脚本启动前会清理本工作区遗留的 Gazebo launch，并通过锁文件阻止重复实例。
@@ -81,6 +85,9 @@ timeout 8s ./scripts/with_venv.sh ros2 topic hz /rgbd_camera/depth_image
 
 env FASTDDS_BUILTIN_TRANSPORTS=UDPv4 ROS_LOG_DIR=/tmp/ros_log \
 timeout 8s ./scripts/with_venv.sh ros2 topic hz /nvblox_node/static_map_slice
+
+env FASTDDS_BUILTIN_TRANSPORTS=UDPv4 ROS_LOG_DIR=/tmp/ros_log \
+timeout 8s ./scripts/with_venv.sh ros2 topic hz /perception/cliff_points
 ```
 
 检查 TF：
@@ -126,8 +133,8 @@ env FASTDDS_BUILTIN_TRANSPORTS=UDPv4 ROS_LOG_DIR=/tmp/ros_log \
 - `global_frame: odom`
 - `voxel_size: 0.035`
 - `mapping_type: static_tsdf`
-- `min_height: 0.03`
-- `max_height: 1.20`
+- `esdf_slice_min_height: 0.03`（避开地面本身）
+- `esdf_slice_max_height: 0.36`
 - `publish_mesh: true`
 - `decay_tsdf_rate_hz: 0.0`：关闭静态 TSDF 衰减。
 - `map_clearing_radius_m: -1.0`：关闭机器人半径外地图清理。
@@ -138,6 +145,30 @@ env FASTDDS_BUILTIN_TRANSPORTS=UDPv4 ROS_LOG_DIR=/tmp/ros_log \
 
 修改这些参数后必须重启建图进程；参数修改前已经被清理或衰减的数据无法恢复，需要
 重新遍历场地建图。关闭清理后，GPU 显存和主机内存会随探索范围持续增长。
+
+### OAK-D-only 坡侧断崖安全
+
+仿真断崖参数位于
+`src/oakd_perception/config/cliff_detector_gazebo.yaml`。检测器使用
+`/rgbd_camera/depth_image`，不订阅 MID360。地形候选高度带会按最大 45° 可通行坡度
+随前向距离升高，因此上坡面不会先被固定高度过滤掉；画面内坡面与侧面低地之间超过
+8 cm 的高程突变会标记在坡面上沿。
+
+`nav2_isaac_sim.yaml` 使用三道保护：local/global costmap 的独立 `cliff_layer`、
+半径 0.48 m 的 collision monitor 停车区，以及 `DiffDrive` 前向安全运动模型。最后
+一项会禁用横移和倒车，让底盘先转向再前进，因为单个前视 OAK-D 无法观察约 69°
+水平视场之外的侧向或后向断崖。这是 OAK-D-only 的物理边界，不应通过软件参数声称
+能够覆盖不可见区域。
+
+仿真麦轮的滚子方向摩擦 `mu2` 从 0.1 提高到 0.6，以减少即使 `cmd_vel.y=0` 仍可能
+发生的坡面横向侧滑。断崖节点还检测相邻像素超过 0.12 m 的深度突变，以及连续的
+无深度回波边界；因此坡侧下层地面被遮挡时，不再要求高程栅格必须同时看到上下表面。
+安全档将最大前进速度限制为 0.25 m/s、前进加速度限制为 0.20 m/s²，以给 0.48 m
+停车区留出制动余量。
+
+在 RViz 添加 `/perception/cliff_points` 的 `PointCloud2` 显示。验收时先关闭自动目标，
+低速让机器人正面对准坡道：平地消息 `width` 应为 0；上坡时左右坡缘应出现断崖点，
+靠近 0.48 m 停车区后 `/collision_monitor_state` 应进入停止状态。
 
 ## 5. 保存建图结果
 

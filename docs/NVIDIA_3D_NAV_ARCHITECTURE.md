@@ -198,15 +198,29 @@ distance/map slice，mesh 可视化会增加负载。若要临时检查三维地
 `src/omni_bringup/config/nvblox_3d_nav.yaml` 中的 `publish_mesh` 改为 `true` 后重启。
 调试结束后应改回 `false`。
 
-当前高度过滤边界：
+当前实车高度过滤采用地面自适应切片：
 
-- `min_height: 0.03`
-- `max_height: 1.20`
-- `slice_height: 0.12`
+- `multi_mapper.experimental_use_ground_plane_estimation: true`
+- `multi_mapper.max_ground_plane_slope_deg: 45.0`
+- `multi_mapper.min_reversed_traversable_slope_deg: 5.0`
+- `multi_mapper.traversable_elevation_height_tolerance_m: 0.02`
+- `static_mapper.slice_height_above_plane_m: 0.03`
+- `static_mapper.slice_height_thickness_m: 0.33`
+- 固定高度回退范围为 `0.03m` 到 `0.36m`
 
-因此用于导航的障碍不是只来自水平面。OAK-D 可见、且高度处于 `0.03m` 到 `1.20m`
-之间的障碍物会影响 nvblox / Nav2 costmap；超过该高度或相机看不到的障碍不会进入
-当前导航地图。
+高度上限由整机垂直包络确定：地面到 `base_link` 约 `0.11m`，`base_link` 到倾斜安装的
+OAK-D 顶部约 `0.243m`，向上取整为 `0.36m`；高度下限约为一个 `0.035m` 体素，以免
+把地面本身投影为障碍。因此用于导航的障碍高度带会跟随当前估计的主地面，并在每个
+TSDF 表面柱上检查局部法向。坡面法向优先
+使用中心差分，并在两体素范围内搜索有效邻居、必要时回退到单边差分，并在同一栅格柱
+内采用带无效样本上限的多数证据判定。朝上且不大于 45° 的局部
+坡面从二维障碍中剔除；从坡底观察导致 TSDF 梯度翻转时，仅 5-45° 的明显坡度允许按
+缓坡处理，近水平的朝下表面继续作为悬空障碍。大于 45°、缺少可靠缓坡证据，或陡坡
+证据未被缓坡证据明确超过，或相邻高程出现超过坡度上限的突变时保持为障碍。OAK-D
+看不到的障碍仍不会进入当前导航地图；地面估计尚未稳定时则使用上述固定高度范围。
+对于法向全部不可靠的栅格柱，二维切片会额外从相邻 TSDF 体素提取零交叉高程，并仅在
+至少两个邻格构成 5-45° 连续坡面、2 cm 高度残差内无突变且没有可靠障碍法向时解除
+误障碍。该高程证据只用于救援不可靠法向，不覆盖明确的陡坡或朝下障碍证据。
 
 ## Nav2 与 MPPI
 

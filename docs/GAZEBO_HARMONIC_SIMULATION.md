@@ -14,6 +14,7 @@ cuVSLAM，而是用 Gazebo Harmonic 发布仿真 RGB-D、MID360 点云/IMU、里
 - `ros_gz_bridge` 把仿真 MID360 点云和 IMU 接入 ROS。
 - ROS 侧 `nvidia_3d_nav.launch.py` 在仿真模式下关闭真实 OAK-D 和真实 cuVSLAM。
 - nvblox 和 Nav2 可以使用仿真 RGB-D 与 Gazebo 里程计跑闭环。
+- OAK-D 深度断崖检测接入独立 costmap 层和 collision monitor；该链路不使用 MID360。
 
 它不用于验证真实 OAK-D 标定、真实 cuVSLAM 跟踪质量或真实底盘串口协议。
 
@@ -55,6 +56,12 @@ source install/setup.bash
 保留 `--physics-engine gz-physics-dartsim-plugin`。当前 Gazebo Harmonic / DART
 可以正确加载这些场地的静态三角网格碰撞。
 
+轮面主摩擦系数为 `mu=2.0`，OAK-D-only 安全配置把滚子方向摩擦提高到 `mu2=0.6`，
+减少坡面横向侧滑；底盘碰撞体底面相对轮底留有 `60mm` 间隙，避免在坡顶折角托底。
+当前参数已用 `0.35m/s` 前进速度通过 `15deg`、长 `2m` 的斜坡和坡顶过渡。更陡的
+坡仍应按实车允许坡度单独验证，不应仅因 nvblox 允许最高 `45deg` 地面坡度，就视为
+底盘具备相同的物理爬坡能力。
+
 默认会同时启动：
 
 - Gazebo Harmonic UI。
@@ -62,6 +69,11 @@ source install/setup.bash
 - nvblox + Nav2。
 - RViz，使用 `src/omni_bringup/rviz/nvblox_map_check.rviz`。
 - `gazebo_auto_goals`，循环向 Nav2 发送目标点。
+
+提高 `mu2` 会牺牲一部分麦轮横移真实性，这与默认禁用横移的安全策略一致。虽然
+Gazebo 底盘本身仍支持麦轮全向运动，默认 OAK-D-only 导航安全配置使用
+`DiffDrive` 运动模型并禁止横移、倒车，让机器人先朝行驶方向转向。原因是单个前视
+OAK-D 无法保护视场外的侧向和后向断崖；这不是 MID360 融合方案。
 
 另开终端启动 RViz：
 
