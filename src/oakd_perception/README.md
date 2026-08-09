@@ -172,7 +172,7 @@
 `sensor_msgs/PointCloud2`
 
 节点把抽样深度变换到 `base_link`，构造局部高程栅格，并将超过可通行坡度模型的
-下降边缘发布为障碍点。完整 NVIDIA 导航入口默认自动启动该节点；单独调试可运行：
+上升台阶及下降边缘发布为障碍点。完整 NVIDIA 导航入口默认自动启动该节点；单独调试可运行：
 
 ```bash
 ./scripts/with_venv.sh ros2 run oakd_perception cliff_detector \
@@ -180,8 +180,8 @@
   src/oakd_perception/config/cliff_detector.yaml
 ```
 
-主要参数为 `min_drop_height_m`（默认 0.08 m）、
-`max_traversable_slope_deg`（默认 45°）、`expected_ground_z_m` 和
+主要参数为 `min_drop_height_m`（默认 0.05 m）、`grid_resolution_m`（默认 0.05 m）、
+`max_traversable_slope_deg`（默认 30°）、`expected_ground_z_m` 和
 `max_detectable_drop_m`。`max_terrain_height_change_m` 允许上坡面进入高程判断，避免
 其侧缘被固定地面高度带提前过滤。图像空间检测还会标记超过
 `min_depth_jump_m` 的近侧边缘和受支持的无回波边界。完全位于相机视场外的区域仍然

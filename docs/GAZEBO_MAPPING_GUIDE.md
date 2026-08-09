@@ -150,9 +150,9 @@ env FASTDDS_BUILTIN_TRANSPORTS=UDPv4 ROS_LOG_DIR=/tmp/ros_log \
 
 仿真断崖参数位于
 `src/oakd_perception/config/cliff_detector_gazebo.yaml`。检测器使用
-`/rgbd_camera/depth_image`，不订阅 MID360。地形候选高度带会按最大 45° 可通行坡度
+`/rgbd_camera/depth_image`，不订阅 MID360。地形候选高度带会按最大 30° 可通行坡度
 随前向距离升高，因此上坡面不会先被固定高度过滤掉；画面内坡面与侧面低地之间超过
-8 cm 的高程突变会标记在坡面上沿。
+5 cm 的高程突变会标记在坡面上沿。
 
 `nav2_isaac_sim.yaml` 使用三道保护：local/global costmap 的独立 `cliff_layer`、
 半径 0.48 m 的 collision monitor 停车区，以及 `DiffDrive` 前向安全运动模型。最后
@@ -160,8 +160,12 @@ env FASTDDS_BUILTIN_TRANSPORTS=UDPv4 ROS_LOG_DIR=/tmp/ros_log \
 水平视场之外的侧向或后向断崖。这是 OAK-D-only 的物理边界，不应通过软件参数声称
 能够覆盖不可见区域。
 
+仿真相机安装与实车默认值保持一致：`x=0.18 m`、`z=0.16 m`、向下俯视 18°，最近
+深度范围为 0.15 m。台阶标记在 local/global costmap 分别保留 3 s/5 s，0.48 m
+近场盲区内不执行射线清障。
+
 仿真麦轮的滚子方向摩擦 `mu2` 从 0.1 提高到 0.6，以减少即使 `cmd_vel.y=0` 仍可能
-发生的坡面横向侧滑。断崖节点还检测相邻像素超过 0.12 m 的深度突变，以及连续的
+发生的坡面横向侧滑。断崖节点还检测相邻像素超过 0.06 m 的深度突变，以及连续的
 无深度回波边界；因此坡侧下层地面被遮挡时，不再要求高程栅格必须同时看到上下表面。
 安全档将最大前进速度限制为 0.25 m/s、前进加速度限制为 0.20 m/s²，以给 0.48 m
 停车区留出制动余量。

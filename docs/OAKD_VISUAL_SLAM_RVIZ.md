@@ -67,14 +67,14 @@ topic 在 best-effort 链路上更容易丢样本；默认 1ms 间隔用于把�
 
 ## 默认坐标关系
 
-默认假设 OAK-D 向前、水平放置，且机器人中心暂时等于 OAK-D 中心：
+默认值与完整导航的低台阶安全安装一致：相机前移、降低并向下俯视 18°：
 
 ```text
-oakd_x = 0
+oakd_x = 0.18
 oakd_y = 0
-oakd_z = 0
+oakd_z = 0.16
 oakd_yaw = 0
-oakd_pitch = pi/2
+oakd_pitch = 0.6*pi
 oakd_roll = pi
 ```
 

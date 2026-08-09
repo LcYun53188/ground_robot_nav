@@ -191,7 +191,7 @@ OAK-D depth
 
 # 如需调整 OAK-D 安装外参。
 ./scripts/with_venv.sh ros2 launch omni_bringup nvidia_3d_nav.launch.py \
-  oakd_x:=0.12 oakd_y:=0.0 oakd_z:=0.28
+  oakd_x:=0.18 oakd_y:=0.0 oakd_z:=0.16 oakd_pitch:=1.88495559215
 ```
 
 ## 关键 Topic
