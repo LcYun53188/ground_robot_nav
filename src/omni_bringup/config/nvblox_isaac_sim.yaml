@@ -29,7 +29,7 @@ nvblox_node:
     # fixed odom-Z obstacle slice and appear as a wall to Nav2.
     multi_mapper:
       experimental_use_ground_plane_estimation: true
-      max_ground_plane_slope_deg: 45.0
+      max_ground_plane_slope_deg: 30.0
       # Reject nearly horizontal undersides while the elevation-continuity
       # fallback handles noisy reversed normals on shallow ramps.
       min_reversed_traversable_slope_deg: 5.0

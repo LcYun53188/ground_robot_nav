@@ -30,12 +30,12 @@ nvblox_node:
     # part of the ground model.
     multi_mapper:
       experimental_use_ground_plane_estimation: true
-      # Inclination is measured from horizontal. Exactly 45 deg is allowed;
+      # Inclination is measured from horizontal. Exactly 30 deg is allowed;
       # steeper fitted surfaces fall back to the obstacle slice below.
-      max_ground_plane_slope_deg: 45.0
+      max_ground_plane_slope_deg: 30.0
       # Projective TSDF gradients can point downward when the camera observes a
       # ramp from its low side. Accept reversed gradients only for a clear
-      # 5-45 deg incline so horizontal overhang undersides remain obstacles.
+      # 5-30 deg incline so horizontal overhang undersides remain obstacles.
       min_reversed_traversable_slope_deg: 5.0
       # Rescue unreliable normals only when neighboring TSDF zero crossings
       # form a continuous ramp. Keep this below the rejected step height.

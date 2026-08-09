@@ -18,7 +18,7 @@ nvblox_node:
     # obstacles by a fixed odom-Z slice.
     multi_mapper:
       experimental_use_ground_plane_estimation: true
-      max_ground_plane_slope_deg: 45.0
+      max_ground_plane_slope_deg: 30.0
       # Accept view-reversed ramp normals above 5 deg, but keep near-horizontal
       # downward-facing overhangs as obstacles.
       min_reversed_traversable_slope_deg: 5.0

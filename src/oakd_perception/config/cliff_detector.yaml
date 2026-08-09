@@ -9,10 +9,14 @@ oakd_cliff_detector:
     # Mark the nearer terrain boundary when the lower surface is occluded or
     # produces no depth return.
     enable_depth_edge_detection: true
-    min_depth_jump_m: 0.12
+    # A 6 cm image-space jump is enough to backstop a partially occluded
+    # 5 cm step while remaining above normal stereo depth jitter.
+    min_depth_jump_m: 0.06
     min_depth_edge_support_pixels: 3
     detect_missing_depth_edges: true
-    min_range_m: 0.25
+    # Keep close terrain until 18 cm; the former 25 cm cutoff hid the step in
+    # the final approach to the bumper.
+    min_range_m: 0.18
     max_range_m: 4.0
     lateral_range_m: 2.0
     # base_link is approximately 0.11 m above the supporting surface.
@@ -27,9 +31,10 @@ oakd_cliff_detector:
     max_detectable_drop_m: 0.50
     # Include rising traversable terrain so its side drop is still visible.
     max_terrain_height_change_m: 0.75
-    grid_resolution_m: 0.08
-    min_drop_height_m: 0.08
-    max_traversable_slope_deg: 45.0
+    # Resolve and reject low steps that the chassis cannot climb.
+    grid_resolution_m: 0.05
+    min_drop_height_m: 0.05
+    max_traversable_slope_deg: 30.0
     height_tolerance_m: 0.01
     min_lower_neighbors: 2
     tf_timeout_sec: 0.05

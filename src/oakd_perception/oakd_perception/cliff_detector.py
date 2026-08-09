@@ -1,4 +1,4 @@
-"""Detect descending terrain edges from a registered depth image."""
+"""Detect non-traversable terrain edges from a registered depth image."""
 
 import math
 from dataclasses import dataclass
@@ -25,9 +25,9 @@ from tf2_ros import Buffer, TransformException, TransformListener
 class CliffDetectionConfig:
     """Geometry thresholds for the local elevation-grid detector."""
 
-    resolution: float = 0.08
-    min_drop_height: float = 0.08
-    max_traversable_slope_deg: float = 45.0
+    resolution: float = 0.05
+    min_drop_height: float = 0.05
+    max_traversable_slope_deg: float = 30.0
     height_tolerance: float = 0.01
     min_lower_neighbors: int = 2
 
@@ -146,6 +146,7 @@ def detect_cliff_edges(points_xyz: np.ndarray,
         if dx != 0 or dy != 0
     ]
     edge_points = []
+    comparison_tolerance_m = 1.0e-5
     for key, upper_point in cells.items():
         lower_neighbors = 0
         for dx, dy in neighbor_offsets:
@@ -167,7 +168,7 @@ def detect_cliff_edges(points_xyz: np.ndarray,
                 config.min_drop_height,
                 slope_tangent * horizontal_distance + config.height_tolerance,
             )
-            if drop_height >= allowed_height_change:
+            if drop_height + comparison_tolerance_m >= allowed_height_change:
                 lower_neighbors += 1
         if lower_neighbors >= config.min_lower_neighbors:
             edge_points.append(upper_point)
@@ -222,10 +223,10 @@ class CliffDetector(Node):
         self.declare_parameter('target_frame', 'base_link')
         self.declare_parameter('pixel_stride', 4)
         self.declare_parameter('enable_depth_edge_detection', True)
-        self.declare_parameter('min_depth_jump_m', 0.12)
+        self.declare_parameter('min_depth_jump_m', 0.06)
         self.declare_parameter('min_depth_edge_support_pixels', 3)
         self.declare_parameter('detect_missing_depth_edges', True)
-        self.declare_parameter('min_range_m', 0.25)
+        self.declare_parameter('min_range_m', 0.18)
         self.declare_parameter('max_range_m', 4.0)
         self.declare_parameter('lateral_range_m', 2.0)
         self.declare_parameter('expected_ground_z_m', -0.11)
@@ -236,9 +237,9 @@ class CliffDetector(Node):
         self.declare_parameter('ground_upper_tolerance_m', 0.08)
         self.declare_parameter('max_detectable_drop_m', 0.50)
         self.declare_parameter('max_terrain_height_change_m', 0.75)
-        self.declare_parameter('grid_resolution_m', 0.08)
-        self.declare_parameter('min_drop_height_m', 0.08)
-        self.declare_parameter('max_traversable_slope_deg', 45.0)
+        self.declare_parameter('grid_resolution_m', 0.05)
+        self.declare_parameter('min_drop_height_m', 0.05)
+        self.declare_parameter('max_traversable_slope_deg', 30.0)
         self.declare_parameter('height_tolerance_m', 0.01)
         self.declare_parameter('min_lower_neighbors', 2)
         self.declare_parameter('tf_timeout_sec', 0.05)

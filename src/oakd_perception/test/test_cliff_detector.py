@@ -15,7 +15,7 @@ from oakd_perception.cliff_detector import (
 import pytest
 
 
-def _terrain(heights, resolution=0.08):
+def _terrain(heights, resolution=0.05):
     points = []
     for ix, height in enumerate(heights):
         for iy in range(-2, 3):
@@ -78,6 +78,15 @@ def test_descending_step_marks_upper_edge():
     assert np.allclose(edges[:, 2], -0.11)
 
 
+def test_five_centimeter_rising_step_marks_upper_edge():
+    """A 5 cm rising step that can stop the chassis must be an obstacle."""
+    points = _terrain([-0.11] * 5 + [-0.06] * 5, resolution=0.05)
+    edges = detect_cliff_edges(points, CliffDetectionConfig())
+    assert edges.shape[0] >= 3
+    assert np.all(edges[:, 0] >= 0.20)
+    assert np.allclose(edges[:, 2], -0.06)
+
+
 def test_lateral_step_marks_ramp_side_edge():
     """A side drop must be detected independently of travel direction."""
     forward_step = _terrain([-0.11] * 5 + [-0.23] * 5)
@@ -93,13 +102,13 @@ def test_uphill_terrain_is_kept_for_side_edge_detection():
     x = np.linspace(0.25, 1.0, 8, dtype=np.float32)
     z = -0.11 + np.tan(np.deg2rad(30.0)) * x
     points = np.column_stack((x, np.zeros_like(x), z))
-    mask = terrain_height_mask(points, -0.11, 45.0, 0.08, 0.50, 0.75)
+    mask = terrain_height_mask(points, -0.11, 30.0, 0.08, 0.50, 0.75)
     assert np.all(mask)
 
 
 def test_uphill_ramp_side_drop_marks_upper_edge():
     """A visible side drop beside an uphill ramp must remain an obstacle."""
-    resolution = 0.08
+    resolution = 0.05
     points = []
     for ix in range(3, 11):
         x = (ix + 0.5) * resolution
@@ -109,7 +118,7 @@ def test_uphill_ramp_side_drop_marks_upper_edge():
             points.append((x, (iy + 0.5) * resolution, z))
     points = np.asarray(points, dtype=np.float32)
     mask = terrain_height_mask(
-        points, -0.11, 45.0, 0.08, 0.50, 0.75
+        points, -0.11, 30.0, 0.08, 0.50, 0.75
     )
     edges = detect_cliff_edges(
         points[mask], CliffDetectionConfig()
@@ -118,10 +127,11 @@ def test_uphill_ramp_side_drop_marks_upper_edge():
     assert np.any(edges[:, 0] > 0.4)
 
 
-def test_45_degree_ramp_is_not_a_cliff():
+def test_30_degree_ramp_is_not_a_cliff():
     """A ramp at the configured traversable limit must remain clear."""
-    resolution = 0.08
-    heights = [-0.11 - index * resolution for index in range(6)]
+    resolution = 0.05
+    height_step = math.tan(math.radians(30.0)) * resolution
+    heights = [-0.11 - index * height_step for index in range(6)]
     points = _terrain(heights, resolution)
     config = CliffDetectionConfig(height_tolerance=0.015)
     assert detect_cliff_edges(points, config).shape == (0, 3)

@@ -34,7 +34,7 @@ def filter_traversable_depth(
     ray_y,
     rotation_to_base,
     translation_to_base,
-    max_slope_deg=45.0,
+    max_slope_deg=30.0,
     min_surface_height_m=-0.40,
     max_surface_height_m=0.14,
     remove_below_height_m=0.11,
@@ -128,7 +128,7 @@ class TraversableDepthFilter(Node):
         self.declare_parameter("camera_info_topic", "/rgbd_camera/camera_info")
         self.declare_parameter("output_topic", "/rgbd_camera/depth_obstacles")
         self.declare_parameter("base_frame", "base_link")
-        self.declare_parameter("max_slope_deg", 45.0)
+        self.declare_parameter("max_slope_deg", 30.0)
         self.declare_parameter("min_surface_height_m", -0.40)
         self.declare_parameter("max_surface_height_m", 0.14)
         self.declare_parameter("remove_below_height_m", 0.11)
