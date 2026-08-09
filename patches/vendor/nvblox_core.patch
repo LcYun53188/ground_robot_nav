@@ -17,7 +17,7 @@ diff --git a/nvblox/include/nvblox/integrators/esdf_integrator.h b/nvblox/includ
 index 5562fc46c28538e3eeceadfc36cf8d0867bc5c34..61e2bd41d85ae6a17dc59cf0e10d2c690a53e23e 100644
 --- a/nvblox/include/nvblox/integrators/esdf_integrator.h
 +++ b/nvblox/include/nvblox/integrators/esdf_integrator.h
-@@ -36,6 +36,128 @@ struct Index3DDeviceSet;
+@@ -36,6 +36,130 @@ struct Index3DDeviceSet;
  struct OccupancySiteFunctor;
  struct TsdfSiteFunctor;
  
@@ -117,8 +117,10 @@ index 5562fc46c28538e3eeceadfc36cf8d0867bc5c34..61e2bd41d85ae6a17dc59cf0e10d2c69
 +}
 +
 +/// Decide whether local elevation evidence is strong enough to rescue a TSDF
-+/// column whose surface normals were all unreliable. Explicit steep/downward
-+/// normal evidence is never overridden.
++/// column whose projective surface normals are unreliable or inconsistent.
++/// A continuous non-flat elevation neighborhood is stronger terrain evidence
++/// than a view-dependent TSDF normal; elevation discontinuities still veto
++/// clearing so walls and step edges remain obstacles.
 +__host__ __device__ inline bool shouldRescueTsdfColumnFromElevation(
 +    int valid_neighbor_count, int discontinuous_neighbor_count,
 +    bool has_minimum_slope, int nontraversable_normal_count,
@@ -126,7 +128,7 @@ index 5562fc46c28538e3eeceadfc36cf8d0867bc5c34..61e2bd41d85ae6a17dc59cf0e10d2c69
 +  constexpr int kMinValidElevationNeighbors = 2;
 +  return valid_neighbor_count >= kMinValidElevationNeighbors &&
 +         discontinuous_neighbor_count == 0 && has_minimum_slope &&
-+         nontraversable_normal_count == 0 && unreliable_normal_count > 0;
++         nontraversable_normal_count + unreliable_normal_count > 0;
 +}
 +
 +/// Decide whether the surface evidence in a vertical TSDF column is
@@ -146,7 +148,7 @@ index 5562fc46c28538e3eeceadfc36cf8d0867bc5c34..61e2bd41d85ae6a17dc59cf0e10d2c69
  /// A class performing (incremental) ESDF integration
  ///
  /// The Euclidean Signed Distance Function (ESDF) is a distance function where
-@@ -218,6 +340,35 @@ class EsdfIntegrator {
+@@ -218,6 +342,35 @@ class EsdfIntegrator {
    /// @param occupied_threshold the minimum probability.
    void occupied_threshold(float occupied_threshold);
  
@@ -182,7 +184,7 @@ index 5562fc46c28538e3eeceadfc36cf8d0867bc5c34..61e2bd41d85ae6a17dc59cf0e10d2c69
    /// A parameter getter
    /// The minimum height, in meters, to consider obstacles part of the 2D ESDF
    /// slice.
-@@ -370,6 +521,16 @@ class EsdfIntegrator {
+@@ -370,6 +523,16 @@ class EsdfIntegrator {
    float slice_height_thickness_m_ =
        kSliceHeightThicknessMParamDesc.default_value;
  
@@ -422,7 +424,7 @@ index 96913c97592f0c8ddad342064a3a822ac18dabaa..cbda6592d933d8dc90080c8a532585a6
      if constexpr (std::is_same<TsdfVoxel, VoxelType>::value) {
        // NOTE(alexmillane): We don't use the weight in the slice, so we don't
        // initialize it.
-@@ -872,6 +984,63 @@ __global__ void markSitesInSliceKernel(
+@@ -872,6 +984,75 @@ __global__ void markSitesInSliceKernel(
          observed[voxel_idx_x][voxel_idx_y] = true;
          const bool is_freespace = isVoxelFreespace(
              freespace_block_ptr, dim3(voxel_idx_x, voxel_idx_y, i));
@@ -456,6 +458,18 @@ index 96913c97592f0c8ddad342064a3a822ac18dabaa..cbda6592d933d8dc90080c8a532585a6
 +              site_functor.isVoxelInsideObject(*voxel_ptr) &&
 +              site_functor.isVoxelNearSurface(*voxel_ptr);
 +          if (is_surface_voxel) {
++            // A grazing depth ray can observe only one side of a shallow
++            // surface, leaving no vertically adjacent TSDF sign crossing.
++            // Retain the occupied near-surface voxel center as a quantized
++            // elevation fallback; the neighborhood continuity checks below
++            // still reject isolated objects and step discontinuities.
++            const Vector3f voxel_center =
++                getCenterPositionFromBlockIndexAndVoxelIndex(
++                    block_size, block_in_column_index,
++                    Index3D(voxel_idx_x, voxel_idx_y, i));
++            atomicMinFloat(
++                &minimum_surface_height_m[voxel_idx_x][voxel_idx_y],
++                voxel_center.z());
 +            Vector3f gradient = Vector3f::Zero();
 +            const bool gradient_valid = getTsdfGradient(
 +                input_layer_block_hash, block_size, block_in_column_index,
@@ -486,7 +500,7 @@ index 96913c97592f0c8ddad342064a3a822ac18dabaa..cbda6592d933d8dc90080c8a532585a6
          site_functor.updateSquashedExtremumAtomic(
              *voxel_ptr, is_freespace, &voxel_slice[voxel_idx_x][voxel_idx_y]);
        }
-@@ -884,6 +1053,71 @@ __global__ void markSitesInSliceKernel(
+@@ -884,6 +1065,101 @@ __global__ void markSitesInSliceKernel(
    // Ok now we compare the new and old values and decide what to output.
    // Do this once for each voxel in the x/y plane.
    if (vertical_block_idx_offset == 0) {
@@ -498,6 +512,10 @@ index 96913c97592f0c8ddad342064a3a822ac18dabaa..cbda6592d933d8dc90080c8a532585a6
 +          minimum_surface_height_m[voxel_idx_x][voxel_idx_y];
 +      if (center_height_m < 1.0e9f) {
 +        const float voxel_size = block_size / kVoxelsPerSide;
++        // Keep the discontinuity veto local so a real step is rejected at its
++        // edge. Search farther for non-flat evidence because a shallow ramp
++        // can quantize into several equal-height TSDF columns before crossing
++        // the next vertical voxel layer.
 +        for (int offset_x = -1; offset_x <= 1; ++offset_x) {
 +          for (int offset_y = -1; offset_y <= 1; ++offset_y) {
 +            if (offset_x == 0 && offset_y == 0) {
@@ -526,7 +544,32 @@ index 96913c97592f0c8ddad342064a3a822ac18dabaa..cbda6592d933d8dc90080c8a532585a6
 +                    site_functor.traversable_elevation_height_tolerance_m)) {
 +              ++discontinuous_elevation_neighbor_count;
 +            }
-+            if (fabsf(height_difference_m) >=
++          }
++        }
++        constexpr int kElevationSlopeSearchRadiusVox =
++            kVoxelsPerSide / 2;
++        for (int offset_x = -kElevationSlopeSearchRadiusVox;
++             offset_x <= kElevationSlopeSearchRadiusVox; ++offset_x) {
++          for (int offset_y = -kElevationSlopeSearchRadiusVox;
++               offset_y <= kElevationSlopeSearchRadiusVox; ++offset_y) {
++            if (offset_x == 0 && offset_y == 0) {
++              continue;
++            }
++            const int neighbor_x = voxel_idx_x + offset_x;
++            const int neighbor_y = voxel_idx_y + offset_y;
++            if (neighbor_x < 0 || neighbor_x >= kVoxelsPerSide ||
++                neighbor_y < 0 || neighbor_y >= kVoxelsPerSide) {
++              continue;
++            }
++            const float neighbor_height_m =
++                minimum_surface_height_m[neighbor_x][neighbor_y];
++            if (neighbor_height_m >= 1.0e9f) {
++              continue;
++            }
++            const float horizontal_distance_m =
++                voxel_size * sqrtf(static_cast<float>(
++                                 offset_x * offset_x + offset_y * offset_y));
++            if (fabsf(neighbor_height_m - center_height_m) >=
 +                site_functor.min_reversed_traversable_slope_tangent *
 +                    horizontal_distance_m) {
 +              has_minimum_elevation_slope = true;
@@ -541,9 +584,10 @@ index 96913c97592f0c8ddad342064a3a822ac18dabaa..cbda6592d933d8dc90080c8a532585a6
 +              has_minimum_elevation_slope,
 +              nontraversable_surface_count[voxel_idx_x][voxel_idx_y],
 +              unreliable_surface_count[voxel_idx_x][voxel_idx_y]);
-+      // Use consensus so that a single noisy or missing normal does not turn a
-+      // continuous ramp into an obstacle. Steep/downward evidence still keeps
-+      // the column occupied unless traversable evidence clearly outnumbers it.
++      // Use normal consensus first, then continuous non-flat elevation as the
++      // view-independent fallback for oblique projective TSDF ramp normals.
++      // Elevation discontinuities veto both paths so walls and steps stay
++      // occupied.
 +      if (site_functor.slope_filter_enabled &&
 +          (shouldClearTraversableTsdfColumn(
 +               traversable_surface_count[voxel_idx_x][voxel_idx_y],
@@ -647,7 +691,7 @@ diff --git a/nvblox/tests/test_esdf_integrator_slicing.cu b/nvblox/tests/test_es
 index 23b5709cd0d9151dcbb482468158480398e87eee..c19f8c69b8b82eb166a10201d818c52ae0dd56f4 100644
 --- a/nvblox/tests/test_esdf_integrator_slicing.cu
 +++ b/nvblox/tests/test_esdf_integrator_slicing.cu
-@@ -30,6 +30,103 @@ using namespace nvblox;
+@@ -30,6 +30,104 @@ using namespace nvblox;
  
  constexpr bool kOutputDebug = false;
  
@@ -730,9 +774,10 @@ index 23b5709cd0d9151dcbb482468158480398e87eee..c19f8c69b8b82eb166a10201d818c52a
 +      0.10f, kVoxelSizeM, kMaxSlopeTangent, kHeightToleranceM));
 +
 +  EXPECT_TRUE(shouldRescueTsdfColumnFromElevation(3, 0, true, 0, 2));
++  EXPECT_TRUE(shouldRescueTsdfColumnFromElevation(3, 0, true, 1, 0));
 +  EXPECT_FALSE(shouldRescueTsdfColumnFromElevation(3, 1, true, 0, 2));
 +  EXPECT_FALSE(shouldRescueTsdfColumnFromElevation(3, 0, false, 0, 2));
-+  EXPECT_FALSE(shouldRescueTsdfColumnFromElevation(3, 0, true, 1, 2));
++  EXPECT_FALSE(shouldRescueTsdfColumnFromElevation(3, 0, true, 0, 0));
 +  EXPECT_FALSE(shouldRescueTsdfColumnFromElevation(1, 0, true, 0, 2));
 +}
 +
