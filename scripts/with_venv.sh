@@ -4,13 +4,19 @@ set -eo pipefail
 WS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$WS_DIR"
 
-if [ ! -f ".venv/bin/activate" ]; then
+VENV_DIR="$WS_DIR/.venv"
+
+if [ ! -x "$VENV_DIR/bin/python" ]; then
   echo "Missing .venv. Create it with: uv venv .venv" >&2
   exit 1
 fi
 
-# Ensure project virtualenv Python is first on PATH.
-source .venv/bin/activate
+# Do not source bin/activate here: activation scripts contain the absolute path
+# from the directory where the environment was created and can become stale if
+# a workspace is copied or renamed. Derive the environment from this workspace.
+export VIRTUAL_ENV="$VENV_DIR"
+export PATH="$VIRTUAL_ENV/bin:$PATH"
+hash -r
 
 # Make the virtualenv site-packages visible to ROS helper scripts that may run
 # under the system Python during code generation.
