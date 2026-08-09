@@ -25,20 +25,31 @@ nvblox_node:
     decay_tsdf_rate_hz: 0.0
     map_clearing_radius_m: -1.0
 
-    # Apply the same per-column, viewpoint-aware TSDF slope classification as
-    # the real robot: eligible surfaces up to 45 deg are traversable.
+    # Follow the locally observed ground plane so a ramp does not intersect a
+    # fixed odom-Z obstacle slice and appear as a wall to Nav2.
     multi_mapper:
+      experimental_use_ground_plane_estimation: true
       max_ground_plane_slope_deg: 45.0
+      # Reject nearly horizontal undersides while the elevation-continuity
+      # fallback handles noisy reversed normals on shallow ramps.
       min_reversed_traversable_slope_deg: 5.0
-      traversable_elevation_height_tolerance_m: 0.02
+      # Slightly exceed one 3.5 cm voxel so adjacent ramp columns remain a
+      # continuous elevation surface instead of alternating obstacle cells.
+      traversable_elevation_height_tolerance_m: 0.04
+      ground_points_candidates_min_z_m: -0.20
+      ground_points_candidates_max_z_m: 0.35
+      ransac_distance_threshold_m: 0.05
+      num_ransac_iterations: 300
 
-    # Current nvblox names for the constant-Z obstacle slice. Simulation keeps
-    # a fixed plane because the generated test world is level. Match the real
-    # robot's 0.03 to 0.36 m vertical envelope without projecting the floor.
+    # Keep the fixed-Z values as fallback, but use a plane-relative slice when
+    # ground estimation is available. The slice starts above the ground and
+    # covers the simulated robot's 0.36 m vertical envelope.
     static_mapper:
       esdf_slice_height: 0.12
       esdf_slice_min_height: 0.03
       esdf_slice_max_height: 0.36
+      slice_height_above_plane_m: 0.03
+      slice_height_thickness_m: 0.33
 
     maximum_sensor_message_queue_length: 10
     back_projection_subsampling: 1

@@ -242,7 +242,10 @@
     <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">
       <odom_frame>odom</odom_frame>
       <robot_base_frame>base_link</robot_base_frame>
-      <dimensions>2</dimensions>
+      <!-- Preserve chassis Z, roll and pitch on ramps. nvblox requires the
+           full camera pose to integrate depth without turning rising terrain
+           into a false vertical obstacle. Nav2 still plans in odom XY. -->
+      <dimensions>3</dimensions>
       <odom_topic>/visual_slam/tracking/odometry</odom_topic>
       <tf_topic>/tf</tf_topic>
       <odom_publish_frequency>50</odom_publish_frequency>

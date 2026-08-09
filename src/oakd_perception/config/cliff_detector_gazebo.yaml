@@ -10,7 +10,10 @@ oakd_cliff_detector:
     enable_depth_edge_detection: true
     min_depth_jump_m: 0.12
     min_depth_edge_support_pixels: 3
-    detect_missing_depth_edges: true
+    # Gazebo produces isolated no-return pixels on ramp transitions. Keep
+    # metric depth-jump and elevation-grid detection, but do not turn those
+    # synthetic missing-depth boundaries into cliff points.
+    detect_missing_depth_edges: false
     min_range_m: 0.25
     max_range_m: 4.0
     lateral_range_m: 2.0

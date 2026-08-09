@@ -109,6 +109,31 @@ def generate_launch_description():
         condition=IfCondition(AndSubstitution(launch_bridge, launch_oakd)),
     )
 
+    gazebo_odometry_velocity = Node(
+        package="omni_bringup",
+        executable="gazebo_odometry_velocity.py",
+        name="gazebo_odometry_velocity",
+        output="screen",
+        parameters=[{"use_sim_time": True}],
+        condition=IfCondition(
+            AndSubstitution(
+                launch_bridge,
+                LaunchConfiguration("launch_odometry_velocity_estimator"),
+            )
+        ),
+    )
+
+    traversable_depth_filter = Node(
+        package="oakd_perception",
+        executable="traversable_depth_filter",
+        name="traversable_depth_filter",
+        output="screen",
+        parameters=[LaunchConfiguration("traversable_depth_filter_params_file")],
+        condition=IfCondition(
+            LaunchConfiguration("launch_traversable_depth_filter")
+        ),
+    )
+
     gazebo_camera_tf = Node(
         package="tf2_ros",
         executable="static_transform_publisher",
@@ -230,7 +255,9 @@ def generate_launch_description():
             "right_camera_info_topic": "/rgbd_camera/camera_info",
             "oakd_depth_image_topic": "/rgbd_camera/depth_image",
             "oakd_depth_camera_info_topic": "/rgbd_camera/camera_info",
-            "nvblox_depth_image_topic": "/rgbd_camera/depth_image",
+            "nvblox_depth_image_topic": LaunchConfiguration(
+                "nvblox_depth_image_topic"
+            ),
             "nvblox_depth_camera_info_topic": "/rgbd_camera/camera_info",
             "camera_optical_frame": "oakd_camera_optical_frame",
             "imu_frame": "oakd_imu_link",
@@ -350,11 +377,35 @@ def generate_launch_description():
                 description="Bridge the simulated MID360 point cloud and IMU.",
             ),
             DeclareLaunchArgument("launch_navigation", default_value="true"),
+            DeclareLaunchArgument(
+                "launch_odometry_velocity_estimator",
+                default_value="true",
+                description=(
+                    "Populate twist omitted by Gazebo's 3-D odometry publisher."
+                ),
+            ),
             DeclareLaunchArgument("launch_nvblox", default_value="true"),
+            DeclareLaunchArgument(
+                "launch_traversable_depth_filter", default_value="true"
+            ),
+            DeclareLaunchArgument(
+                "nvblox_depth_image_topic",
+                default_value="/rgbd_camera/depth_obstacles",
+            ),
+            DeclareLaunchArgument(
+                "traversable_depth_filter_params_file",
+                default_value=PathJoinSubstitution(
+                    [
+                        FindPackageShare("oakd_perception"),
+                        "config",
+                        "traversable_depth_filter_gazebo.yaml",
+                    ]
+                ),
+            ),
             DeclareLaunchArgument("launch_cliff_detector", default_value="true"),
             DeclareLaunchArgument("launch_nav2", default_value="true"),
             DeclareLaunchArgument("launch_rviz", default_value="true"),
-            DeclareLaunchArgument("launch_auto_goals", default_value="true"),
+            DeclareLaunchArgument("launch_auto_goals", default_value="false"),
             DeclareLaunchArgument(
                 "nav2_params_file",
                 default_value=PathJoinSubstitution(
@@ -403,6 +454,8 @@ def generate_launch_description():
             mid360_bridge,
             color_image_bridge,
             depth_image_bridge,
+            gazebo_odometry_velocity,
+            traversable_depth_filter,
             gazebo_camera_tf,
             gazebo_camera_optical_tf,
             gazebo_oakd_imu_tf,

@@ -30,6 +30,7 @@
   <exec_depend>nav2_bringup</exec_depend>
   <exec_depend>nav2_bt_navigator</exec_depend>
   <exec_depend>nav2_controller</exec_depend>
+  <exec_depend>nav2_dwb_controller</exec_depend>
   <exec_depend>nav2_mppi_controller</exec_depend>
   <exec_depend>nav2_planner</exec_depend>
   <exec_depend>nav2_smoother</exec_depend>

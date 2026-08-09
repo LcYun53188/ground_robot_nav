@@ -27,6 +27,27 @@
     ./simulation/scripts/run_rmuc_2025_sim.sh
     ```
 
+    默认启动 Nav2 和 RViz，但不自动发送巡航目标；可在 RViz 中手动设置目标点。
+    如需恢复预设点自动巡航：
+
+    ```bash
+    ./simulation/scripts/run_rmuc_2025_sim.sh launch_auto_goals:=true
+    ```
+
+    需要手动验证底盘运动或爬坡时，建议关闭 Nav2，避免导航速度与手动速度同时发布：
+
+    ```bash
+    ./simulation/scripts/run_rmuc_2025_sim.sh launch_navigation:=false
+    ```
+
+    然后在另一个终端运行键盘遥控窗口。`W/S` 控制前后，`A/D` 控制左右
+    平移，`Q/E` 控制左右旋转；可同时按下多个运动键，数字 `1` 到 `9`
+    选择 10% 到 90% 速度，`0` 选择 100% 速度：
+
+    ```bash
+    ./simulation/scripts/run_keyboard_teleop.sh
+    ```
+
     该脚本会显式设置 `launch_gazebo:=true` 和 `launch_rviz:=true`，同时打开一个
     Gazebo 窗口和 RViz，并启动传感器桥接、nvblox 和 Nav2，同时关闭自动目标点，
     由操作者在 RViz 中手动下发导航目标。仅检查传感器、不启动导航栈时运行：
@@ -43,15 +64,18 @@
     ./simulation/scripts/run_rmuc_2025_sim.sh launch_mid360:=true
     ```
 
-    专用入口默认加载 `gazebo_sensor_check.rviz`，显示 nvblox 三维网格、ESDF 切片、
-    静态占据地图、Nav2 局部/全局代价地图、全局/局部路径、机器人轮廓，以及仿真
-    里程计、MID360 点云和 OAK-D 图像。点击 RViz 顶部工具栏的 `2D Goal Pose`，
+    专用入口默认加载 `gazebo_sensor_check.rviz`，显示 nvblox 三维网格、静态占据地图、
+    Nav2 局部/全局代价地图、全局/局部路径、机器人轮廓，以及仿真里程计、MID360
+    点云和 OAK-D 图像。彩虹色 ESDF 切片默认关闭，避免将距离着色误认为障碍物；
+    需要时可在 `Nvblox 3D` 组中手动启用。点击 RViz 顶部工具栏的 `2D Goal Pose`，
     在地图中按住并拖动设置位置与朝向，即可直接发送手动导航目标。也可使用
     `Nav2 Goal` 选点，再在 `Navigation 2` 面板中启动或取消任务。
 
     OAK-D 深度显示固定使用 `0.2–8.0 m` 灰度范围，不使用 RViz 自动归一化。
     Gazebo 对量程外像素发布 `+Inf`；固定范围可避免这些像素干扰整帧最大值计算，
-    导致深度窗口黑白交替或闪烁。nvblox 仍直接订阅原始 `32FC1` 深度图。
+    导致深度窗口黑白交替或闪烁。nvblox 订阅
+    `/rgbd_camera/depth_obstacles`：该话题从原始 `32FC1` 深度中移除低矮可通行
+    平面和坡面，但保留墙体、较高障碍及无效深度边界。
 
     每次运行时，脚本会先查找本工作区旧的 Gazebo/ROS launch 进程，依次使用
     `SIGINT` 和超时后的 `SIGTERM` 完成清理；确认旧进程及仿真锁释放后才启动新
