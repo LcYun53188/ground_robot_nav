@@ -13,6 +13,8 @@ install(DIRECTORY launch config rviz gazebo
 
 install(PROGRAMS
   scripts/gazebo_auto_goals.py
+  scripts/gazebo_odometry_velocity.py
+  scripts/keyboard_teleop.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
