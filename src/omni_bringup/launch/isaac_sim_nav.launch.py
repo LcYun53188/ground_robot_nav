@@ -89,9 +89,9 @@ def generate_launch_description():
             DeclareLaunchArgument(
                 "right_camera_frame_id", default_value="oakd_right_camera_optical_frame"
             ),
-            DeclareLaunchArgument("oakd_x", default_value="0.12"),
+            DeclareLaunchArgument("oakd_x", default_value="0.18"),
             DeclareLaunchArgument("oakd_y", default_value="0.0"),
-            DeclareLaunchArgument("oakd_z", default_value="0.28"),
+            DeclareLaunchArgument("oakd_z", default_value="0.16"),
             DeclareLaunchArgument("oakd_yaw", default_value="0.0"),
             DeclareLaunchArgument("oakd_pitch", default_value="0.0"),
             DeclareLaunchArgument("oakd_roll", default_value="0.0"),

@@ -578,16 +578,20 @@ def generate_launch_description():
             DeclareLaunchArgument("stereo_baseline_m", default_value="0.075"),
             DeclareLaunchArgument("left_camera_x", default_value="-0.0375"),
             DeclareLaunchArgument("right_camera_x", default_value="0.0375"),
-            DeclareLaunchArgument("oakd_x", default_value="0.12"),
+            # Low-step safety mount: move the camera toward the front bumper,
+            # lower it, and pitch its optical axis 18 degrees downward. With
+            # the nominal IMU-to-optical rotation, 108 degrees here produces
+            # an 18-degree downward optical axis in base_link.
+            DeclareLaunchArgument("oakd_x", default_value="0.18"),
             DeclareLaunchArgument("oakd_y", default_value="0.0"),
-            DeclareLaunchArgument("oakd_z", default_value="0.28"),
+            DeclareLaunchArgument("oakd_z", default_value="0.16"),
             DeclareLaunchArgument("oakd_yaw", default_value="0.0"),
             # OAK-D raw IMU axes are not ROS base_link axes. With the OAK-D
             # camera facing forward and level, these defaults align base_link
             # (X forward, Y left, Z up) with the OAK-D IMU frame while keeping
             # oakd_camera_optical_frame at the standard optical convention:
             # Z forward, X right, Y down.
-            DeclareLaunchArgument("oakd_pitch", default_value="1.57079632679"),
+            DeclareLaunchArgument("oakd_pitch", default_value="1.88495559215"),
             DeclareLaunchArgument("oakd_roll", default_value="3.14159265359"),
             OpaqueFunction(function=launch_setup),
         ]

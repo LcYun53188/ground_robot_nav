@@ -286,9 +286,9 @@ class IsaacSimRosBridge(Node):
                 stamp,
                 self.base_frame,
                 self.oakd_imu_frame,
-                float(self.oakd_pose.get("x", 0.12)),
+                float(self.oakd_pose.get("x", 0.18)),
                 float(self.oakd_pose.get("y", 0.0)),
-                float(self.oakd_pose.get("z", 0.28)),
+                float(self.oakd_pose.get("z", 0.16)),
                 float(self.oakd_pose.get("yaw", 0.0)),
             ),
             self._transform(

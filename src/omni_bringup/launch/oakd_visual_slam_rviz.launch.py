@@ -28,9 +28,7 @@ def generate_launch_description():
         [ThisLaunchFileDir(), "..", "rviz", "visual_slam_check.rviz"]
     )
 
-    # The OAK-D is assumed to be mounted facing forward and level. These
-    # defaults keep base_link as the ROS robot frame (X forward, Y left, Z up)
-    # while preserving the standard optical camera frame convention.
+    # Match the low-step safety mount used by the full navigation entry point.
     oakd_roll = LaunchConfiguration("oakd_roll")
     oakd_pitch = LaunchConfiguration("oakd_pitch")
     oakd_yaw = LaunchConfiguration("oakd_yaw")
@@ -71,11 +69,11 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument("rviz_config", default_value=rviz_config),
             DeclareLaunchArgument("rviz_delay", default_value="3.0"),
-            DeclareLaunchArgument("oakd_x", default_value="0.0"),
+            DeclareLaunchArgument("oakd_x", default_value="0.18"),
             DeclareLaunchArgument("oakd_y", default_value="0.0"),
-            DeclareLaunchArgument("oakd_z", default_value="0.0"),
+            DeclareLaunchArgument("oakd_z", default_value="0.16"),
             DeclareLaunchArgument("oakd_yaw", default_value="0.0"),
-            DeclareLaunchArgument("oakd_pitch", default_value="1.57079632679"),
+            DeclareLaunchArgument("oakd_pitch", default_value="1.88495559215"),
             DeclareLaunchArgument("oakd_roll", default_value="3.14159265359"),
             DeclareLaunchArgument("oakd_image_frequency", default_value="25"),
             DeclareLaunchArgument("oakd_image_poll_frequency", default_value="75"),

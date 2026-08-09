@@ -173,9 +173,9 @@
         </visual>
       </link>
 
-      <!-- Gazebo camera +X faces forward and pitches 10 degrees downward. -->
+      <!-- Gazebo camera +X faces forward and pitches 18 degrees downward. -->
       <link name="oakd_camera_link">
-        <pose>0.18 0 0.22 0 0.1745329252 0</pose>
+        <pose>0.18 0 0.16 0 0.31415926536 0</pose>
         <inertial>
           <mass>0.1</mass>
           <inertia>
@@ -224,7 +224,7 @@
               <height>400</height>
             </image>
             <clip>
-              <near>0.20</near>
+              <near>0.15</near>
               <far>8.0</far>
             </clip>
             <optical_frame_id>oakd_camera_optical_frame</optical_frame_id>

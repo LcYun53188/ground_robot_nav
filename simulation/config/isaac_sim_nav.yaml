@@ -79,9 +79,9 @@ oakd:
   left_frame: "oakd_left_camera_optical_frame"
   right_frame: "oakd_right_camera_optical_frame"
   pose:
-    x: 0.12
+    x: 0.18
     y: 0.0
-    z: 0.28
+    z: 0.16
     roll: 0.0
     pitch: 0.0
     yaw: 0.0

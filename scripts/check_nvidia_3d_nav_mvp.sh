@@ -7,6 +7,7 @@ NAV2_CONFIG="$WS_DIR/src/omni_bringup/config/nav2_3d_nav.yaml"
 NVBLOX_CONFIG="$WS_DIR/src/omni_bringup/config/nvblox_3d_nav.yaml"
 VSLAM_CONFIG="$WS_DIR/src/omni_bringup/config/isaac_visual_slam_oakd.yaml"
 CLIFF_CONFIG="$WS_DIR/src/oakd_perception/config/cliff_detector.yaml"
+BRINGUP_LAUNCH="$WS_DIR/src/omni_bringup/launch/nvidia_3d_nav.launch.py"
 
 TOPIC_TIMEOUT_SEC="${TOPIC_TIMEOUT_SEC:-6}"
 TF_TIMEOUT_SEC="${TF_TIMEOUT_SEC:-6}"
@@ -101,6 +102,12 @@ check_tf() {
 }
 
 check_static_config() {
+  require_grep 'DeclareLaunchArgument\("oakd_x", default_value="0.18"\)' \
+    "$BRINGUP_LAUNCH" "OAK-D forward mount"
+  require_grep 'DeclareLaunchArgument\("oakd_z", default_value="0.16"\)' \
+    "$BRINGUP_LAUNCH" "OAK-D lowered mount"
+  require_grep 'DeclareLaunchArgument\("oakd_pitch", default_value="1.88495559215"\)' \
+    "$BRINGUP_LAUNCH" "OAK-D 18-degree downward mount"
   require_grep 'tracking_mode: 1' "$VSLAM_CONFIG" "Visual SLAM VIO tracking mode"
   require_grep 'publish_odom_to_base_tf: true' "$VSLAM_CONFIG" "Visual SLAM odom->base TF"
   require_grep 'global_frame: odom' "$NVBLOX_CONFIG" "nvblox odom global frame"
@@ -109,8 +116,8 @@ check_static_config() {
     "RViz occupancy grid 20 cm below 3D map"
   require_grep 'experimental_use_ground_plane_estimation: true' "$NVBLOX_CONFIG" \
     "nvblox adaptive ground-plane slice"
-  require_grep 'max_ground_plane_slope_deg: 45.0' "$NVBLOX_CONFIG" \
-    "nvblox 45-degree ground slope limit"
+  require_grep 'max_ground_plane_slope_deg: 30.0' "$NVBLOX_CONFIG" \
+    "nvblox 30-degree ground slope limit"
   require_grep 'min_reversed_traversable_slope_deg: 5.0' "$NVBLOX_CONFIG" \
     "nvblox uphill-view ramp normal handling"
   require_grep 'traversable_elevation_height_tolerance_m: 0.02' "$NVBLOX_CONFIG" \
@@ -130,10 +137,16 @@ check_static_config() {
     "Nav2 negative-obstacle clearing source"
   require_grep 'plugins: \["nvblox_layer", "cliff_layer", "inflation_layer"\]' \
     "$NAV2_CONFIG" "Nav2 cliff obstacle layer"
-  require_grep 'min_drop_height_m: 0.08' "$CLIFF_CONFIG" \
-    "OAK-D 8 cm negative-obstacle threshold"
-  require_grep 'min_depth_jump_m: 0.12' "$CLIFF_CONFIG" \
+  require_grep 'min_drop_height_m: 0.05' "$CLIFF_CONFIG" \
+    "OAK-D 5 cm terrain-edge threshold"
+  require_grep 'min_depth_jump_m: 0.06' "$CLIFF_CONFIG" \
     "OAK-D occluded-cliff depth-edge threshold"
+  require_grep 'min_range_m: 0.18' "$CLIFF_CONFIG" \
+    "OAK-D close-range terrain threshold"
+  require_grep 'observation_persistence: 3.0' "$NAV2_CONFIG" \
+    "local costmap blind-zone obstacle persistence"
+  require_grep 'raytrace_min_range: 0.48' "$NAV2_CONFIG" \
+    "costmap blind-zone clearing guard"
   require_grep 'nav2_mppi_controller::MPPIController' "$NAV2_CONFIG" "Nav2 MPPI controller"
   require_grep 'motion_model: "DiffDrive"' "$NAV2_CONFIG" \
     "OAK-D-only forward-view motion model"
