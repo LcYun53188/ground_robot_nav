@@ -14,7 +14,7 @@ index f6b26a200c6631e007d802f9cfb043a9480dbda3..8cb379fc2544b984d6240d6cc054d412
  }
  
 diff --git a/nvblox/include/nvblox/integrators/esdf_integrator.h b/nvblox/include/nvblox/integrators/esdf_integrator.h
-index 5562fc46c28538e3eeceadfc36cf8d0867bc5c34..61e2bd41d85ae6a17dc59cf0e10d2c690a53e23e 100644
+index 5562fc46c28538e3eeceadfc36cf8d0867bc5c34..c3224869749baaa6d87fb8dd7cf32f052fa3783b 100644
 --- a/nvblox/include/nvblox/integrators/esdf_integrator.h
 +++ b/nvblox/include/nvblox/integrators/esdf_integrator.h
 @@ -36,6 +36,130 @@ struct Index3DDeviceSet;
@@ -265,7 +265,7 @@ index 456c42e783c2b470020911a2fd5c9f348c522c5c..a5ca9c4b161fa637326ed572df346261
    RansacPlaneFitterParams ransac_plane_fitter_params;
    GroundPlaneEstimatorParams ground_plane_estimator_params;
 diff --git a/nvblox/src/integrators/esdf_integrator.cu b/nvblox/src/integrators/esdf_integrator.cu
-index 96913c97592f0c8ddad342064a3a822ac18dabaa..cbda6592d933d8dc90080c8a532585a61992571c 100644
+index 96913c97592f0c8ddad342064a3a822ac18dabaa..e25391cb3cb287d27007f17ac97063b7c67e5399 100644
 --- a/nvblox/src/integrators/esdf_integrator.cu
 +++ b/nvblox/src/integrators/esdf_integrator.cu
 @@ -74,6 +74,38 @@ void EsdfIntegrator::occupied_threshold(float occupied_threshold) {
@@ -320,7 +320,7 @@ index 96913c97592f0c8ddad342064a3a822ac18dabaa..cbda6592d933d8dc90080c8a532585a6
        });
  }
  
-@@ -135,8 +173,65 @@ struct TsdfSiteFunctor {
+@@ -135,8 +173,180 @@ struct TsdfSiteFunctor {
  
    float min_weight;
    float max_site_distance_m;
@@ -383,10 +383,125 @@ index 96913c97592f0c8ddad342064a3a822ac18dabaa..cbda6592d933d8dc90080c8a532585a6
 +  return true;
 +}
 +
++__device__ ColumnBounds getColumnBoundsWithoutVirtualDispatch(
++    const ConstantZColumnBoundsGetter& slicer, const Index2D& block_xy_idx,
++    const Index2D& voxel_xy_idx) {
++  return slicer.ConstantZColumnBoundsGetter::getColumnBounds(block_xy_idx,
++                                                             voxel_xy_idx);
++}
++
++__device__ ColumnBounds getColumnBoundsWithoutVirtualDispatch(
++    const PlanarSliceColumnBoundsGetter& slicer,
++    const Index2D& block_xy_idx, const Index2D& voxel_xy_idx) {
++  return slicer.PlanarSliceColumnBoundsGetter::getColumnBounds(block_xy_idx,
++                                                               voxel_xy_idx);
++}
++
++template <typename SlicerType>
++__device__ bool getMinimumTsdfSurfaceHeightInColumn(
++    const Index3DDeviceHashMapType<TsdfBlock>& tsdf_block_hash,
++    const Index3DDeviceHashMapType<FreespaceBlock>& freespace_block_hash,
++    const TsdfSiteFunctor& site_functor, float block_size,
++    const SlicerType& slicer, Index3D block_index, int voxel_idx_x,
++    int voxel_idx_y, float* minimum_height_m) {
++  constexpr int kVoxelsPerSide = TsdfBlock::kVoxelsPerSide;
++
++  // Convert an x/y voxel index outside the current block into the matching
++  // adjacent block and wrapped voxel index. The elevation tests intentionally
++  // span block boundaries; otherwise a periodic obstacle seam is produced at
++  // every kVoxelsPerSide columns on shallow ramps.
++  while (voxel_idx_x < 0) {
++    voxel_idx_x += kVoxelsPerSide;
++    --block_index.x();
++  }
++  while (voxel_idx_x >= kVoxelsPerSide) {
++    voxel_idx_x -= kVoxelsPerSide;
++    ++block_index.x();
++  }
++  while (voxel_idx_y < 0) {
++    voxel_idx_y += kVoxelsPerSide;
++    --block_index.y();
++  }
++  while (voxel_idx_y >= kVoxelsPerSide) {
++    voxel_idx_y -= kVoxelsPerSide;
++    ++block_index.y();
++  }
++
++  // The slicers inherit a virtual host/device interface. Explicit overloads
++  // avoid a device-side vtable call through the host-constructed functor.
++  const ColumnBounds column_bounds = getColumnBoundsWithoutVirtualDispatch(
++      slicer,
++      Index2D(block_index.x(), block_index.y()),
++      Index2D(voxel_idx_x, voxel_idx_y));
++  const float voxel_size = block_size / kVoxelsPerSide;
++  float height_m = 1.0e10f;
++
++  for (int block_idx_z = column_bounds.min_block_idx_z();
++       block_idx_z <= column_bounds.max_block_idx_z(); ++block_idx_z) {
++    block_index.z() = block_idx_z;
++    const TsdfBlock* tsdf_block_ptr = nullptr;
++    auto tsdf_it = tsdf_block_hash.find(block_index);
++    if (tsdf_it != tsdf_block_hash.end()) {
++      tsdf_block_ptr = tsdf_it->second;
++    }
++    if (tsdf_block_ptr == nullptr) {
++      continue;
++    }
++
++    const FreespaceBlock* freespace_block_ptr = nullptr;
++    if (!freespace_block_hash.empty()) {
++      auto freespace_it = freespace_block_hash.find(block_index);
++      if (freespace_it != freespace_block_hash.end()) {
++        freespace_block_ptr = freespace_it->second;
++      }
++    }
++
++    const auto [voxel_start_index, voxel_end_index] =
++        column_bounds.getMinAndMaxVoxelZIndex(block_idx_z);
++    for (int voxel_idx_z = voxel_start_index;
++         voxel_idx_z <= voxel_end_index; ++voxel_idx_z) {
++      const TsdfVoxel& voxel =
++          tsdf_block_ptr
++              ->voxels[voxel_idx_x][voxel_idx_y][voxel_idx_z];
++      if (!site_functor.isVoxelObserved(voxel) ||
++          !site_functor.isVoxelNearSurface(voxel) ||
++          isVoxelFreespace(
++              freespace_block_ptr,
++              dim3(voxel_idx_x, voxel_idx_y, voxel_idx_z))) {
++        continue;
++      }
++
++      const Vector3f voxel_center =
++          getCenterPositionFromBlockIndexAndVoxelIndex(
++              block_size, block_index,
++              Index3D(voxel_idx_x, voxel_idx_y, voxel_idx_z));
++      TsdfVoxel* lower_voxel = nullptr;
++      if (getVoxelAtPosition(
++              tsdf_block_hash,
++              voxel_center - Vector3f(0.0f, 0.0f, voxel_size), block_size,
++              &lower_voxel) &&
++          lower_voxel->weight >= site_functor.min_weight) {
++        float crossing_height_m = 0.0f;
++        if (calculateTsdfZeroCrossingHeight(
++                voxel_center.z() - voxel_size, lower_voxel->distance,
++                voxel_center.z(), voxel.distance, &crossing_height_m)) {
++          height_m = fminf(height_m, crossing_height_m);
++        }
++      }
++      if (site_functor.isVoxelInsideObject(voxel)) {
++        height_m = fminf(height_m, voxel_center.z());
++      }
++    }
++  }
++
++  *minimum_height_m = height_m;
++  return height_m < 1.0e9f;
++}
++
  struct OccupancySiteFunctor {
    __device__ bool isVoxelObserved(const OccupancyVoxel& occupancy_voxel) const {
      constexpr float kEps = 1e-4;
-@@ -672,6 +767,15 @@ TsdfSiteFunctor EsdfIntegrator::getSiteFunctor(const TsdfLayer& layer) {
+@@ -672,6 +882,15 @@ TsdfSiteFunctor EsdfIntegrator::getSiteFunctor(const TsdfLayer& layer) {
    functor.min_weight = tsdf_min_weight_;
    functor.max_site_distance_m =
        max_tsdf_site_distance_vox_ * layer.voxel_size();
@@ -402,7 +517,7 @@ index 96913c97592f0c8ddad342064a3a822ac18dabaa..cbda6592d933d8dc90080c8a532585a6
    return functor;
  }
  
-@@ -778,6 +882,10 @@ __global__ void markSitesInSliceKernel(
+@@ -778,6 +997,10 @@ __global__ void markSitesInSliceKernel(
    // First port-of-call is squashing a 3D band of the surface reconstruction to
    // 2D. First we allocating 2D arrays for the output.
    __shared__ bool observed[kVoxelsPerSide][kVoxelsPerSide];
@@ -413,7 +528,7 @@ index 96913c97592f0c8ddad342064a3a822ac18dabaa..cbda6592d933d8dc90080c8a532585a6
    __shared__ typename SharedVoxel<VoxelType>::type voxel_slice[kVoxelsPerSide]
                                                                [kVoxelsPerSide];
    __shared__ Index3D esdf_slice_block_index;
-@@ -788,6 +896,10 @@ __global__ void markSitesInSliceKernel(
+@@ -788,6 +1011,10 @@ __global__ void markSitesInSliceKernel(
    // Called by: x*y threads - one plane in the ThreadBlock
    if (vertical_block_idx_offset == 0) {
      observed[voxel_idx_x][voxel_idx_y] = false;
@@ -424,7 +539,7 @@ index 96913c97592f0c8ddad342064a3a822ac18dabaa..cbda6592d933d8dc90080c8a532585a6
      if constexpr (std::is_same<TsdfVoxel, VoxelType>::value) {
        // NOTE(alexmillane): We don't use the weight in the slice, so we don't
        // initialize it.
-@@ -872,6 +984,75 @@ __global__ void markSitesInSliceKernel(
+@@ -872,6 +1099,75 @@ __global__ void markSitesInSliceKernel(
          observed[voxel_idx_x][voxel_idx_y] = true;
          const bool is_freespace = isVoxelFreespace(
              freespace_block_ptr, dim3(voxel_idx_x, voxel_idx_y, i));
@@ -500,7 +615,7 @@ index 96913c97592f0c8ddad342064a3a822ac18dabaa..cbda6592d933d8dc90080c8a532585a6
          site_functor.updateSquashedExtremumAtomic(
              *voxel_ptr, is_freespace, &voxel_slice[voxel_idx_x][voxel_idx_y]);
        }
-@@ -884,6 +1065,101 @@ __global__ void markSitesInSliceKernel(
+@@ -884,6 +1180,121 @@ __global__ void markSitesInSliceKernel(
    // Ok now we compare the new and old values and decide what to output.
    // Do this once for each voxel in the x/y plane.
    if (vertical_block_idx_offset == 0) {
@@ -523,12 +638,18 @@ index 96913c97592f0c8ddad342064a3a822ac18dabaa..cbda6592d933d8dc90080c8a532585a6
 +            }
 +            const int neighbor_x = voxel_idx_x + offset_x;
 +            const int neighbor_y = voxel_idx_y + offset_y;
-+            if (neighbor_x < 0 || neighbor_x >= kVoxelsPerSide ||
-+                neighbor_y < 0 || neighbor_y >= kVoxelsPerSide) {
++            float neighbor_height_m = 1.0e10f;
++            if (neighbor_x >= 0 && neighbor_x < kVoxelsPerSide &&
++                neighbor_y >= 0 && neighbor_y < kVoxelsPerSide) {
++              neighbor_height_m =
++                  minimum_surface_height_m[neighbor_x][neighbor_y];
++            } else if (!getMinimumTsdfSurfaceHeightInColumn(
++                           input_layer_block_hash, freespace_block_hash,
++                           site_functor, block_size, slicer,
++                           esdf_slice_block_index, neighbor_x, neighbor_y,
++                           &neighbor_height_m)) {
 +              continue;
 +            }
-+            const float neighbor_height_m =
-+                minimum_surface_height_m[neighbor_x][neighbor_y];
 +            if (neighbor_height_m >= 1.0e9f) {
 +              continue;
 +            }
@@ -548,21 +669,35 @@ index 96913c97592f0c8ddad342064a3a822ac18dabaa..cbda6592d933d8dc90080c8a532585a6
 +        }
 +        constexpr int kElevationSlopeSearchRadiusVox =
 +            kVoxelsPerSide / 2;
++        const bool needs_elevation_rescue =
++            nontraversable_surface_count[voxel_idx_x][voxel_idx_y] +
++                unreliable_surface_count[voxel_idx_x][voxel_idx_y] >
++            0;
 +        for (int offset_x = -kElevationSlopeSearchRadiusVox;
-+             offset_x <= kElevationSlopeSearchRadiusVox; ++offset_x) {
++             needs_elevation_rescue && !has_minimum_elevation_slope &&
++             offset_x <= kElevationSlopeSearchRadiusVox;
++             ++offset_x) {
 +          for (int offset_y = -kElevationSlopeSearchRadiusVox;
-+               offset_y <= kElevationSlopeSearchRadiusVox; ++offset_y) {
++               !has_minimum_elevation_slope &&
++               offset_y <= kElevationSlopeSearchRadiusVox;
++               ++offset_y) {
 +            if (offset_x == 0 && offset_y == 0) {
 +              continue;
 +            }
 +            const int neighbor_x = voxel_idx_x + offset_x;
 +            const int neighbor_y = voxel_idx_y + offset_y;
-+            if (neighbor_x < 0 || neighbor_x >= kVoxelsPerSide ||
-+                neighbor_y < 0 || neighbor_y >= kVoxelsPerSide) {
++            float neighbor_height_m = 1.0e10f;
++            if (neighbor_x >= 0 && neighbor_x < kVoxelsPerSide &&
++                neighbor_y >= 0 && neighbor_y < kVoxelsPerSide) {
++              neighbor_height_m =
++                  minimum_surface_height_m[neighbor_x][neighbor_y];
++            } else if (!getMinimumTsdfSurfaceHeightInColumn(
++                           input_layer_block_hash, freespace_block_hash,
++                           site_functor, block_size, slicer,
++                           esdf_slice_block_index, neighbor_x, neighbor_y,
++                           &neighbor_height_m)) {
 +              continue;
 +            }
-+            const float neighbor_height_m =
-+                minimum_surface_height_m[neighbor_x][neighbor_y];
 +            if (neighbor_height_m >= 1.0e9f) {
 +              continue;
 +            }
@@ -688,7 +823,7 @@ index 30a7118a689300cb71c041ba3ec9be98ba3a9db4..d544489bf40b5619b884b4bd889f5ea3
               foreground_mapper_->getParameterTree("foreground_mapper"),
               image_masker_.getParameterTree(),
 diff --git a/nvblox/tests/test_esdf_integrator_slicing.cu b/nvblox/tests/test_esdf_integrator_slicing.cu
-index 23b5709cd0d9151dcbb482468158480398e87eee..c19f8c69b8b82eb166a10201d818c52ae0dd56f4 100644
+index 23b5709cd0d9151dcbb482468158480398e87eee..8518ca4326fecaa189f28bdb452fd02570ce69b3 100644
 --- a/nvblox/tests/test_esdf_integrator_slicing.cu
 +++ b/nvblox/tests/test_esdf_integrator_slicing.cu
 @@ -30,6 +30,104 @@ using namespace nvblox;
@@ -765,13 +900,13 @@ index 23b5709cd0d9151dcbb482468158480398e87eee..c19f8c69b8b82eb166a10201d818c52a
 +
 +TEST(EsdfTraversableSlopeTest, RejectsStepElevationRescue) {
 +  constexpr float kVoxelSizeM = 0.035f;
-+  constexpr float kMaxSlopeTangent = 1.0f;
-+  constexpr float kHeightToleranceM = 0.02f;
++  constexpr float kMaxSlopeTangent = 0.577350269f;
++  constexpr float kHeightToleranceM = 0.025f;
 +
 +  EXPECT_TRUE(isElevationDifferenceWithinSlopeLimit(
-+      0.03f, kVoxelSizeM, kMaxSlopeTangent, kHeightToleranceM));
++      0.035f, kVoxelSizeM, kMaxSlopeTangent, kHeightToleranceM));
 +  EXPECT_FALSE(isElevationDifferenceWithinSlopeLimit(
-+      0.10f, kVoxelSizeM, kMaxSlopeTangent, kHeightToleranceM));
++      0.05f, kVoxelSizeM, kMaxSlopeTangent, kHeightToleranceM));
 +
 +  EXPECT_TRUE(shouldRescueTsdfColumnFromElevation(3, 0, true, 0, 2));
 +  EXPECT_TRUE(shouldRescueTsdfColumnFromElevation(3, 0, true, 1, 0));
@@ -796,6 +931,111 @@ index 23b5709cd0d9151dcbb482468158480398e87eee..c19f8c69b8b82eb166a10201d818c52a
  // Just exposes the internal slicing methods for testing.
  class TestEsdfIntegrator : public EsdfIntegrator {
   public:
+@@ -106,6 +204,104 @@ class ParameterizedEsdfIntegratorSlicingTest
+  protected:
+ };
+ 
++TEST_F(EsdfIntegratorSlicingTest,
++       ClearsContinuousElevationAcrossHorizontalBlockBoundary) {
++  const Index3D lower_ramp_block_idx(0, 0, 0);
++  const Index3D upper_ramp_block_idx(1, 0, 0);
++  auto lower_ramp_block =
++      tsdf_layer_.allocateBlockAtIndex(lower_ramp_block_idx);
++  auto upper_ramp_block =
++      tsdf_layer_.allocateBlockAtIndex(upper_ramp_block_idx);
++  setAllTsdfVoxelsInBlock(kFreeDistance, 0.0f, lower_ramp_block.get());
++  setAllTsdfVoxelsInBlock(kFreeDistance, 0.0f, upper_ramp_block.get());
++
++  // Both halves are locally flat, with a 3.5 cm quantized elevation change
++  // only at the horizontal TSDF block boundary. This represents the vertical
++  // quantization of a shallow continuous ramp. Without cross-block elevation
++  // lookup, neither boundary column can find the non-flat evidence required
++  // by the elevation rescue and a periodic obstacle seam remains.
++  constexpr int kLowerSampleZ = 1;
++  constexpr int kUpperSampleZ = 2;
++  constexpr float kLowerRampPositiveDistanceM = 0.015f;
++  constexpr float kLowerRampNegativeDistanceM = -0.035f;
++  constexpr float kUpperRampPositiveDistanceM = 0.05f;
++  constexpr float kUpperRampNegativeDistanceM = 0.0f;
++  for (int x = 0; x < TsdfBlock::kVoxelsPerSide; ++x) {
++    for (int y = 0; y < TsdfBlock::kVoxelsPerSide; ++y) {
++      TsdfVoxel& lower_positive =
++          (*lower_ramp_block)(Index3D(x, y, kLowerSampleZ));
++      lower_positive.distance = kLowerRampPositiveDistanceM;
++      lower_positive.weight = kWeight;
++      TsdfVoxel& lower_negative =
++          (*lower_ramp_block)(Index3D(x, y, kUpperSampleZ));
++      lower_negative.distance = kLowerRampNegativeDistanceM;
++      lower_negative.weight = kWeight;
++      TsdfVoxel& upper_positive =
++          (*upper_ramp_block)(Index3D(x, y, kLowerSampleZ));
++      upper_positive.distance = kUpperRampPositiveDistanceM;
++      upper_positive.weight = kWeight;
++      TsdfVoxel& upper_negative =
++          (*upper_ramp_block)(Index3D(x, y, kUpperSampleZ));
++      upper_negative.distance = kUpperRampNegativeDistanceM;
++      upper_negative.weight = kWeight;
++    }
++  }
++
++  esdf_integrator_.max_traversable_slope_deg(30.0f);
++  esdf_integrator_.min_reversed_traversable_slope_deg(5.0f);
++  esdf_integrator_.traversable_elevation_height_tolerance_m(0.025f);
++
++  const ConstantZSliceDescription slice_spec{
++      .z_min_m = 0.0f,
++      .z_max_m = 4.0f * kVoxelSizeM,
++      .z_output_m = 0.0f};
++  const std::vector<Index3D> blocks_to_update = {lower_ramp_block_idx,
++                                                 upper_ramp_block_idx};
++  esdf_integrator_.markSitesInSlice<TsdfLayer>(
++      tsdf_layer_, blocks_to_update, slice_spec, nullptr, &esdf_layer_,
++      &updated_blocks_, &cleared_blocks_);
++
++  const auto lower_esdf_block =
++      esdf_layer_.getBlockAtIndex(lower_ramp_block_idx);
++  const auto upper_esdf_block =
++      esdf_layer_.getBlockAtIndex(upper_ramp_block_idx);
++  ASSERT_TRUE(lower_esdf_block);
++  ASSERT_TRUE(upper_esdf_block);
++  constexpr int kMiddleY = TsdfBlock::kVoxelsPerSide / 2;
++  EXPECT_FALSE((*lower_esdf_block)
++                   (Index3D(TsdfBlock::kVoxelsPerSide - 1, kMiddleY, 0))
++                       .is_site);
++  EXPECT_FALSE((*upper_esdf_block)(Index3D(0, kMiddleY, 0)).is_site);
++
++  // Turn the left half into a 6 cm lower surface. At one voxel of horizontal
++  // separation this exceeds the 30 degree slope allowance plus the 2.5 cm
++  // noise tolerance, so both sides of the discontinuity must remain sites.
++  constexpr int kStepLowerSampleZ = 0;
++  constexpr int kStepUpperSampleZ = 1;
++  constexpr float kStepPositiveDistanceM = 0.04f;
++  constexpr float kStepNegativeDistanceM = -0.01f;
++  for (int x = 0; x < TsdfBlock::kVoxelsPerSide; ++x) {
++    for (int y = 0; y < TsdfBlock::kVoxelsPerSide; ++y) {
++      (*lower_ramp_block)(Index3D(x, y, kUpperSampleZ)).weight = 0.0f;
++      TsdfVoxel& step_positive =
++          (*lower_ramp_block)(Index3D(x, y, kStepLowerSampleZ));
++      step_positive.distance = kStepPositiveDistanceM;
++      step_positive.weight = kWeight;
++      TsdfVoxel& step_negative =
++          (*lower_ramp_block)(Index3D(x, y, kStepUpperSampleZ));
++      step_negative.distance = kStepNegativeDistanceM;
++      step_negative.weight = kWeight;
++    }
++  }
++  esdf_integrator_.markSitesInSlice<TsdfLayer>(
++      tsdf_layer_, blocks_to_update, slice_spec, nullptr, &esdf_layer_,
++      &updated_blocks_, &cleared_blocks_);
++  EXPECT_TRUE((*lower_esdf_block)
++                  (Index3D(TsdfBlock::kVoxelsPerSide - 1, kMiddleY, 0))
++                      .is_site);
++  EXPECT_TRUE((*upper_esdf_block)(Index3D(0, kMiddleY, 0)).is_site);
++}
++
+ TEST_P(ParameterizedEsdfIntegratorSlicingTest, SingleBlock) {
+   // Allocate the test blocks
+   const Index3D occupied_idx(0, 0, 0);
 diff --git a/nvblox/tests/test_multi_mapper.cpp b/nvblox/tests/test_multi_mapper.cpp
 index fe4e1e31f97e85b196d51969f7cf1610b6e00aac..845585c0646e8b67a6be7bec18fb2e9ec736503a 100644
 --- a/nvblox/tests/test_multi_mapper.cpp

@@ -57,6 +57,54 @@ def test_flat_depth_has_no_discontinuity():
     assert not np.any(mask)
 
 
+def test_side_viewed_traversable_ramp_is_not_a_depth_edge():
+    """A large optical jump on a 30 degree ramp must not mark a cliff."""
+    depth = np.tile(
+        np.linspace(1.0, 2.0, 10, dtype=np.float32), (8, 1)
+    )
+    x = np.tile(np.linspace(0.0, 0.45, 10, dtype=np.float32), (8, 1))
+    y = np.broadcast_to(
+        np.linspace(-0.08, 0.08, 8, dtype=np.float32)[:, None], depth.shape
+    )
+    points = np.stack((
+        x,
+        y,
+        -0.11 + math.tan(math.radians(30.0)) * x,
+    ), axis=-1)
+    mask = depth_discontinuity_mask(
+        depth,
+        0.06,
+        3,
+        False,
+        points,
+        30.0,
+        0.01,
+    )
+    assert not np.any(mask)
+
+
+def test_geometrically_steep_depth_edge_is_preserved():
+    """The geometry check must retain a real descending step boundary."""
+    depth = np.ones((8, 10), dtype=np.float32)
+    depth[:, 5:] = 1.4
+    x = np.tile(np.linspace(0.0, 0.45, 10, dtype=np.float32), (8, 1))
+    y = np.broadcast_to(
+        np.linspace(-0.08, 0.08, 8, dtype=np.float32)[:, None], depth.shape
+    )
+    points = np.stack((x, y, np.full_like(x, -0.11)), axis=-1)
+    points[:, 5:, 2] -= 0.12
+    mask = depth_discontinuity_mask(
+        depth,
+        0.06,
+        3,
+        False,
+        points,
+        30.0,
+        0.01,
+    )
+    assert np.all(mask[2:-2, 4])
+
+
 def test_elevation_grid_keeps_highest_surface():
     """Each cell must expose its highest surface for conservative clearing."""
     points = np.asarray([

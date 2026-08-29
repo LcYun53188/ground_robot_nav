@@ -6,8 +6,21 @@ traversable_depth_filter:
     output_topic: /rgbd_camera/depth_obstacles
     base_frame: base_link
     max_slope_deg: 30.0
-    min_surface_height_m: -0.40
-    max_surface_height_m: 0.14
-    remove_below_height_m: 0.11
-    max_neighbor_depth_jump_m: 0.06
-    mask_dilation_pixels: 3
+    # At a crest the chassis remains pitched while the surface ahead is flat;
+    # in base_link this makes distant supporting terrain appear much lower.
+    # Keep the full 7 m sensor range eligible for normal/continuity filtering.
+    min_surface_height_m: -1.50
+    # Classify the ramp and its top platform before the robot starts climbing.
+    # Horizontal obstacle tops may be removed, but their discontinuous/vertical
+    # perimeter remains in the obstacle image and therefore stays collision-safe.
+    max_surface_height_m: 0.75
+    # base_link is 0.11 m above the support surface. Remove only the first
+    # 3 cm above it; taller objects must reach nvblox even when their top is
+    # locally horizontal.
+    remove_below_height_m: -0.08
+    # Residual above the slope-scaled local height difference. The filter
+    # computes the allowed difference from max_slope_deg and the actual
+    # projected pixel spacing, avoiding false obstacle stripes on distant
+    # ramp pixels while retaining a 5 cm step edge.
+    max_neighbor_height_jump_m: 0.015
+    mask_dilation_pixels: 1

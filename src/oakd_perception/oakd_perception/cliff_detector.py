@@ -57,10 +57,23 @@ def depth_discontinuity_mask(
     min_depth_jump: float,
     min_support_pixels: int,
     detect_missing_depth: bool,
+    points_xyz: np.ndarray | None = None,
+    max_traversable_slope_deg: float = 90.0,
+    height_tolerance: float = 0.0,
 ) -> np.ndarray:
-    """Mark nearer pixels along supported depth or no-return boundaries."""
+    """Mark supported depth edges that cannot be explained by terrain slope.
+
+    A fixed optical-depth jump is not a terrain discontinuity: a continuous
+    ramp viewed at a grazing angle may have a large jump between adjacent
+    pixels. When base-frame points are supplied, retain a depth edge only if
+    its local height change exceeds the configured traversable-slope model.
+    """
     valid = np.isfinite(depth) & (depth > 0.0)
     raw_edges = np.zeros(depth.shape, dtype=bool)
+    use_geometry = points_xyz is not None
+    if use_geometry and points_xyz.shape != depth.shape + (3,):
+        raise ValueError('points_xyz must have shape depth.shape + (3,)')
+    slope_tangent = math.tan(math.radians(max_traversable_slope_deg))
 
     def add_pair(
         center_slice: Tuple[slice, slice],
@@ -73,6 +86,19 @@ def depth_discontinuity_mask(
         farther = neighbor_valid & (
             neighbor - center >= min_depth_jump
         )
+        if use_geometry:
+            center_points = points_xyz[center_slice]
+            neighbor_points = points_xyz[neighbor_slice]
+            horizontal_distance = np.hypot(
+                neighbor_points[..., 0] - center_points[..., 0],
+                neighbor_points[..., 1] - center_points[..., 1],
+            )
+            height_change = np.abs(
+                neighbor_points[..., 2] - center_points[..., 2]
+            )
+            farther &= height_change > (
+                slope_tangent * horizontal_distance + height_tolerance
+            )
         if detect_missing_depth:
             farther |= ~neighbor_valid
         raw_edges[center_slice] |= center_valid & farther
@@ -308,7 +334,7 @@ class CliffDetector(Node):
         return np.column_stack((x, y, z)).astype(np.float32, copy=False)
 
     def _project_depth_edges(
-        self, depth: np.ndarray, info: CameraInfo
+        self, depth: np.ndarray, info: CameraInfo, transform
     ) -> np.ndarray:
         if not bool(
             self.get_parameter('enable_depth_edge_detection').value
@@ -316,6 +342,23 @@ class CliffDetector(Node):
             return np.empty((0, 3), dtype=np.float32)
         stride = max(1, int(self.get_parameter('pixel_stride').value))
         sampled = depth[::stride, ::stride]
+        rows, cols = np.indices(sampled.shape, dtype=np.float32)
+        u = cols * stride
+        v = rows * stride
+        fx, fy = float(info.k[0]), float(info.k[4])
+        cx, cy = float(info.k[2]), float(info.k[5])
+        if fx <= 0.0 or fy <= 0.0:
+            raise ValueError('camera intrinsics are not valid yet')
+        valid = np.isfinite(sampled) & (sampled > 0.0)
+        safe_depth = np.where(valid, sampled, 0.0)
+        camera_points = np.stack((
+            (u - cx) * safe_depth / fx,
+            (v - cy) * safe_depth / fy,
+            safe_depth,
+        ), axis=-1)
+        base_points = self._transform_points(
+            camera_points.reshape((-1, 3)), transform
+        ).reshape(camera_points.shape)
         edge_mask = depth_discontinuity_mask(
             sampled,
             float(self.get_parameter('min_depth_jump_m').value),
@@ -327,21 +370,13 @@ class CliffDetector(Node):
             bool(
                 self.get_parameter('detect_missing_depth_edges').value
             ),
+            base_points,
+            float(
+                self.get_parameter('max_traversable_slope_deg').value
+            ),
+            float(self.get_parameter('height_tolerance_m').value),
         )
-        if not np.any(edge_mask):
-            return np.empty((0, 3), dtype=np.float32)
-        rows, cols = np.indices(sampled.shape, dtype=np.float32)
-        u = cols * stride
-        v = rows * stride
-        fx, fy = float(info.k[0]), float(info.k[4])
-        cx, cy = float(info.k[2]), float(info.k[5])
-        if fx <= 0.0 or fy <= 0.0:
-            raise ValueError('camera intrinsics are not valid yet')
-        z = sampled[edge_mask]
-        x = (u[edge_mask] - cx) * z / fx
-        y = (v[edge_mask] - cy) * z / fy
-        return np.column_stack((x, y, z)).astype(
-            np.float32, copy=False
+        return base_points[edge_mask]
         )
 
     def _transform_points(self, points: np.ndarray, transform) -> np.ndarray:
@@ -491,13 +526,10 @@ class CliffDetector(Node):
             )
             depth = self._decode_depth(msg)
             camera_points = self._project_depth(depth, self._camera_info)
-            camera_edge_points = self._project_depth_edges(
-                depth, self._camera_info
+            base_edge_points = self._project_depth_edges(
+                depth, self._camera_info, transform
             )
             base_points = self._transform_points(camera_points, transform)
-            base_edge_points = self._transform_points(
-                camera_edge_points, transform
-            )
             self._detect_and_publish(
                 base_points,
                 msg.header.stamp,

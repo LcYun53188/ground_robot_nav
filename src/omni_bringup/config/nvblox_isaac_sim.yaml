@@ -33,9 +33,11 @@ nvblox_node:
       # Reject nearly horizontal undersides while the elevation-continuity
       # fallback handles noisy reversed normals on shallow ramps.
       min_reversed_traversable_slope_deg: 5.0
-      # Slightly exceed one 3.5 cm voxel so adjacent ramp columns remain a
-      # continuous elevation surface instead of alternating obstacle cells.
-      traversable_elevation_height_tolerance_m: 0.04
+      # A 30 deg surface rises about 2.02 cm per 3.5 cm horizontal voxel, while
+      # its quantized elevation can jump by a full 3.5 cm voxel. Leave 1 cm of
+      # additional noise margin above that 1.48 cm residual. The resulting
+      # 4.52 cm axial allowance still rejects a 5 cm step edge.
+      traversable_elevation_height_tolerance_m: 0.025
       ground_points_candidates_min_z_m: -0.20
       ground_points_candidates_max_z_m: 0.35
       ransac_distance_threshold_m: 0.05
@@ -50,6 +52,11 @@ nvblox_node:
       esdf_slice_max_height: 0.36
       slice_height_above_plane_m: 0.03
       slice_height_thickness_m: 0.33
+      # The traversable-depth filter publishes removed terrain as depth=0.
+      # Decay TSDF voxels that project into those invalid pixels so a noisy
+      # ramp sample from an earlier viewpoint cannot remain a permanent wall.
+      # Continuously observed obstacle pixels are integrated normally.
+      projective_tsdf_integrator_invalid_depth_decay_factor: 0.8
 
     maximum_sensor_message_queue_length: 10
     back_projection_subsampling: 1

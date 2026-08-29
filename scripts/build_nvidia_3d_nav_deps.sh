@@ -32,6 +32,15 @@ if [ ! -x "$CUDA_HOME/bin/nvcc" ]; then
   exit 2
 fi
 
+# ament_cmake_python creates a directory here during a non-symlink build, but
+# --symlink-install needs the same path to be a symlink. Remove only this
+# generated path when switching modes so an otherwise valid incremental build
+# is not aborted near the end of the dependency graph.
+oakd_python_build_path="$WS_DIR/build/oakd_perception/ament_cmake_python/oakd_perception/oakd_perception"
+if [ -d "$oakd_python_build_path" ] && [ ! -L "$oakd_python_build_path" ]; then
+  cmake -E remove_directory "$oakd_python_build_path"
+fi
+
 exec env \
   SKIP_WS_SETUP=true \
   CC=/usr/bin/gcc \

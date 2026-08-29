@@ -5,8 +5,10 @@ WS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WITH_VENV="$WS_DIR/scripts/with_venv.sh"
 NAV2_CONFIG="$WS_DIR/src/omni_bringup/config/nav2_3d_nav.yaml"
 NVBLOX_CONFIG="$WS_DIR/src/omni_bringup/config/nvblox_3d_nav.yaml"
+SIM_NVBLOX_CONFIG="$WS_DIR/src/omni_bringup/config/nvblox_isaac_sim.yaml"
 VSLAM_CONFIG="$WS_DIR/src/omni_bringup/config/isaac_visual_slam_oakd.yaml"
 CLIFF_CONFIG="$WS_DIR/src/oakd_perception/config/cliff_detector.yaml"
+TRAVERSABLE_DEPTH_CONFIG="$WS_DIR/src/oakd_perception/config/traversable_depth_filter_gazebo.yaml"
 BRINGUP_LAUNCH="$WS_DIR/src/omni_bringup/launch/nvidia_3d_nav.launch.py"
 
 TOPIC_TIMEOUT_SEC="${TOPIC_TIMEOUT_SEC:-6}"
@@ -101,6 +103,20 @@ check_tf() {
   ok "tf: $parent_frame -> $child_frame"
 }
 
+check_node_param() {
+  local node="$1"
+  local parameter="$2"
+  local expected="$3"
+  local output
+
+  output="$("$WITH_VENV" ros2 param get "$node" "$parameter" 2>&1 || true)"
+  if [[ "$output" != *"$expected"* ]] || [[ "$output" == *"not set"* ]]; then
+    echo "$output" >&2
+    fail "node parameter: $node.$parameter expected $expected"
+  fi
+  ok "node parameter: $node.$parameter -> $expected"
+}
+
 check_static_config() {
   require_grep 'DeclareLaunchArgument\("oakd_x", default_value="0.18"\)' \
     "$BRINGUP_LAUNCH" "OAK-D forward mount"
@@ -122,6 +138,18 @@ check_static_config() {
     "nvblox uphill-view ramp normal handling"
   require_grep 'traversable_elevation_height_tolerance_m: 0.02' "$NVBLOX_CONFIG" \
     "nvblox local elevation continuity fallback"
+  require_grep 'traversable_elevation_height_tolerance_m: 0.025' \
+    "$SIM_NVBLOX_CONFIG" "Gazebo ramp noise tolerance"
+  require_grep 'projective_tsdf_integrator_invalid_depth_decay_factor: 0.8' \
+    "$SIM_NVBLOX_CONFIG" "Gazebo filtered-depth TSDF cleanup"
+  require_grep 'min_surface_height_m: -1.50' "$TRAVERSABLE_DEPTH_CONFIG" \
+    "Gazebo pitched-crest terrain lower bound"
+  require_grep 'max_surface_height_m: 0.50' "$TRAVERSABLE_DEPTH_CONFIG" \
+    "Gazebo full-ramp terrain upper bound"
+  require_grep 'max_neighbor_depth_jump_m: 0.12' "$TRAVERSABLE_DEPTH_CONFIG" \
+    "Gazebo oblique ramp depth continuity"
+  require_grep 'max_neighbor_height_jump_m: 0.04' "$TRAVERSABLE_DEPTH_CONFIG" \
+    "Gazebo 5 cm step preservation"
   require_grep 'esdf_slice_min_height: 0.03' "$NVBLOX_CONFIG" \
     "nvblox ESDF fallback lower bound"
   require_grep 'esdf_slice_max_height: 0.36' "$NVBLOX_CONFIG" \
@@ -166,6 +194,15 @@ check_package_availability() {
 }
 
 check_runtime_graph() {
+  # These parameters come from the project nvblox patch. Checking the live
+  # node prevents an older installed library from silently ignoring the YAML.
+  check_node_param "/nvblox_node" \
+    "multi_mapper.max_ground_plane_slope_deg" "30"
+  check_node_param "/nvblox_node" \
+    "multi_mapper.min_reversed_traversable_slope_deg" "5"
+  check_node_param "/nvblox_node" \
+    "multi_mapper.traversable_elevation_height_tolerance_m" "0.02"
+
   check_topic_type "/visual_slam/tracking/odometry" "nav_msgs/msg/Odometry"
   check_topic_type "/nvblox_node/static_map_slice" "nvblox_msgs/msg/DistanceMapSlice"
   check_topic_type "/perception/cliff_points" "sensor_msgs/msg/PointCloud2"

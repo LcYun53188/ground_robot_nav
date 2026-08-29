@@ -35,13 +35,13 @@ def filter_traversable_depth(
     rotation_to_base,
     translation_to_base,
     max_slope_deg=30.0,
-    min_surface_height_m=-0.40,
-    max_surface_height_m=0.14,
-    remove_below_height_m=0.11,
-    max_neighbor_depth_jump_m=0.06,
-    mask_dilation_pixels=3,
+    min_surface_height_m=-1.50,
+    max_surface_height_m=0.50,
+    remove_below_height_m=-0.08,
+    max_neighbor_height_jump_m=0.04,
+    mask_dilation_pixels=1,
 ):
-    """Return a depth copy with smooth, low, traversable surfaces set to NaN."""
+    """Return depth with smooth traversable surfaces encoded as invalid zero."""
     output = np.array(depth, dtype=np.float32, copy=True)
     if output.ndim != 2 or min(output.shape) < 3:
         return output
@@ -53,6 +53,18 @@ def filter_traversable_depth(
     projected_depth = np.where(valid, output, 0.0)
     x = ray_x * projected_depth
     y = ray_y * projected_depth
+    full_base_x = (
+        rotation_to_base[0, 0] * x
+        + rotation_to_base[0, 1] * y
+        + rotation_to_base[0, 2] * projected_depth
+        + translation_to_base[0]
+    )
+    full_base_y = (
+        rotation_to_base[1, 0] * x
+        + rotation_to_base[1, 1] * y
+        + rotation_to_base[1, 2] * projected_depth
+        + translation_to_base[1]
+    )
     full_base_height = (
         rotation_to_base[2, 0] * x
         + rotation_to_base[2, 1] * y
@@ -78,6 +90,16 @@ def filter_traversable_depth(
     )
 
     base_height = full_base_height[1:-1, 1:-1]
+    du_height = full_base_height[1:-1, 2:] - full_base_height[1:-1, :-2]
+    dv_height = full_base_height[2:, 1:-1] - full_base_height[:-2, 1:-1]
+    du_horizontal_distance = np.hypot(
+        full_base_x[1:-1, 2:] - full_base_x[1:-1, :-2],
+        full_base_y[1:-1, 2:] - full_base_y[1:-1, :-2],
+    )
+    dv_horizontal_distance = np.hypot(
+        full_base_x[2:, 1:-1] - full_base_x[:-2, 1:-1],
+        full_base_y[2:, 1:-1] - full_base_y[:-2, 1:-1],
+    )
     neighborhood_valid = (
         valid[1:-1, 1:-1]
         & valid[1:-1, :-2]
@@ -85,19 +107,49 @@ def filter_traversable_depth(
         & valid[:-2, 1:-1]
         & valid[2:, 1:-1]
     )
+    # A fixed height difference incorrectly rejects a valid ramp as its
+    # projected pixel spacing grows with range. Compare each pair against the
+    # configured traversable slope instead. `max_neighbor_height_jump_m` is
+    # only the residual for depth rasterization/TF precision, so a real step
+    # still has to fit the same local slope model to be removed.
+    max_height_change = (
+        math.tan(math.radians(max_slope_deg)) * du_horizontal_distance
+        + max_neighbor_height_jump_m
+    )
+    max_vertical_height_change = (
+        math.tan(math.radians(max_slope_deg)) * dv_horizontal_distance
+        + max_neighbor_height_jump_m
+    )
     smooth = (
-        np.abs(du_z) <= 2.0 * max_neighbor_depth_jump_m
-    ) & (np.abs(dv_z) <= 2.0 * max_neighbor_depth_jump_m)
+        (np.abs(du_height) <= max_height_change)
+        & (np.abs(dv_height) <= max_vertical_height_change)
+    )
+    # Permit tiny floating-point error at the configured slope limit. Without
+    # this, a mathematically 30-degree plane can alternate between accepted
+    # and rejected pixels after single-precision projection.
     traversable = np.abs(base_normal_z) >= (
-        math.cos(math.radians(max_slope_deg)) * normal_norm
+        (math.cos(math.radians(max_slope_deg)) - 1.0e-6) * normal_norm
     )
     low_surface = (base_height >= min_surface_height_m) & (
         base_height <= max_surface_height_m
     )
-    remove = neighborhood_valid & smooth & traversable & low_surface & (normal_norm > 1.0e-8)
-    # Projective TSDF normals are least reliable at vertical voxel-layer
-    # transitions. Remove the low ground band by height as well; a wall still
-    # contributes all pixels above this band and therefore remains an obstacle.
+    traversable_candidate = (
+        neighborhood_valid
+        & smooth
+        & traversable
+        & low_surface
+        & (normal_norm > 1.0e-8)
+    )
+    remove = traversable_candidate.copy()
+    dilation_domain = (
+        neighborhood_valid
+        & smooth
+        & low_surface
+        & (traversable | (normal_norm <= 1.0e-8))
+    )
+    # Fill only holes that are themselves smooth traversable terrain. Restricting
+    # dilation to the candidate mask prevents a nearby ramp or floor patch from
+    # erasing a step edge or the silhouette of a low obstacle.
     for _ in range(max(0, int(mask_dilation_pixels))):
         padded = np.pad(remove, 1, mode="constant", constant_values=False)
         remove = np.logical_or.reduce(
@@ -106,16 +158,19 @@ def filter_traversable_depth(
                 for row in range(3)
                 for column in range(3)
             ]
-        )
-    # Dilation only fills small holes around a confirmed traversable patch; it
-    # may not spread onto invalid pixels or surfaces above the robot envelope.
-    remove &= valid[1:-1, 1:-1] & low_surface
-    output[1:-1, 1:-1][remove] = np.nan
+        ) & dilation_domain
+    # Publish the canonical invalid-depth value expected by the nvblox input
+    # contract. With invalid-depth TSDF decay enabled, repeated observations of
+    # this pixel reduce the weight of a previously integrated ramp outlier.
+    output[1:-1, 1:-1][remove] = 0.0
+    # Remove only the one-voxel band immediately above the supporting ground.
+    # The previous +0.11 m threshold could erase an entire 16-22 cm obstacle,
+    # depending on the camera TF error, before nvblox ever observed it.
     output[
         valid
         & (full_base_height >= min_surface_height_m)
         & (full_base_height <= remove_below_height_m)
-    ] = np.nan
+    ] = 0.0
     return output
 
 
@@ -129,11 +184,11 @@ class TraversableDepthFilter(Node):
         self.declare_parameter("output_topic", "/rgbd_camera/depth_obstacles")
         self.declare_parameter("base_frame", "base_link")
         self.declare_parameter("max_slope_deg", 30.0)
-        self.declare_parameter("min_surface_height_m", -0.40)
-        self.declare_parameter("max_surface_height_m", 0.14)
-        self.declare_parameter("remove_below_height_m", 0.11)
-        self.declare_parameter("max_neighbor_depth_jump_m", 0.06)
-        self.declare_parameter("mask_dilation_pixels", 3)
+        self.declare_parameter("min_surface_height_m", -1.50)
+        self.declare_parameter("max_surface_height_m", 0.50)
+        self.declare_parameter("remove_below_height_m", -0.08)
+        self.declare_parameter("max_neighbor_height_jump_m", 0.04)
+        self.declare_parameter("mask_dilation_pixels", 1)
 
         self._camera_info = None
         self._ray_x = None
@@ -212,7 +267,7 @@ class TraversableDepthFilter(Node):
             self.get_parameter("min_surface_height_m").value,
             self.get_parameter("max_surface_height_m").value,
             self.get_parameter("remove_below_height_m").value,
-            self.get_parameter("max_neighbor_depth_jump_m").value,
+            self.get_parameter("max_neighbor_height_jump_m").value,
             self.get_parameter("mask_dilation_pixels").value,
         )
         output = Image()
@@ -233,7 +288,8 @@ def main(args=None):
         rclpy.spin(node)
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":
